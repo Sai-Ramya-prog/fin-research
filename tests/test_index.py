@@ -154,7 +154,7 @@ class TestIndexChunks:
         assert statuses[-1][0] == "ready"
         results = ephemeral_collection.get(where={"doc_id": str(doc_id)})
         assert len(results["ids"]) == 1
-        assert results["ids"][0] == f"{doc_id}:0"
+        assert results["ids"][0] == f"{doc_id}:1:0"  # <doc>:<pdf_page>:<k>
 
     def test_idempotent_second_run_same_count(self, ephemeral_collection):
         """Indexing the same doc twice leaves exactly the same chunk count."""
@@ -228,7 +228,7 @@ class TestIndexChunks:
             idx.index_chunks(doc_id, chunks)
 
         results = ephemeral_collection.get(where={"doc_id": str(doc_id)})
-        expected_ids = {f"{doc_id}:0", f"{doc_id}:1", f"{doc_id}:2"}
+        expected_ids = {f"{doc_id}:1:0", f"{doc_id}:2:0", f"{doc_id}:3:0"}
         assert set(results["ids"]) == expected_ids
 
     def test_embedding_error_marks_document_failed(self, ephemeral_collection):
@@ -309,7 +309,7 @@ class TestIndexChunks:
 
         # Pre-store the first 32 chunks as if an earlier run got that far.
         ephemeral_collection.add(
-            ids=[f"{doc_id}:{i}" for i in range(32)],
+            ids=[f"{doc_id}:{i + 1}:0" for i in range(32)],
             documents=[c["text"] for c in chunks[:32]],
             metadatas=[{"doc_id": str(doc_id)}] * 32,
             embeddings=[[0.1] * 16] * 32,
@@ -349,6 +349,56 @@ class TestIndexChunks:
         assert ephemeral_collection.count() == idx.EMBED_BATCH_SIZE  # first batch kept
         assert statuses[-1][0] == "failed"
         assert "quota exhausted" in statuses[-1][1]
+
+
+class TestTieredIds:
+    def test_ids_are_page_based_and_stable(self):
+        from app.index import chunk_ids
+        doc_id = uuid.uuid4()
+        chunks = [
+            {"text": "a", "metadata": {"pdf_page": "5"}},
+            {"text": "b", "metadata": {"pdf_page": "5"}},
+            {"text": "c", "metadata": {"pdf_page": "9"}},
+        ]
+        assert chunk_ids(doc_id, chunks) == [
+            f"{doc_id}:5:0", f"{doc_id}:5:1", f"{doc_id}:9:0",
+        ]
+        # adding other pages later never changes ids of pages already stored
+        more = chunks + [{"text": "d", "metadata": {"pdf_page": "7"}}]
+        assert chunk_ids(doc_id, more)[:3] == chunk_ids(doc_id, chunks)
+
+    def test_old_format_chunks_are_removed(self, ephemeral_collection):
+        from app import index as idx
+        doc_id = uuid.uuid4()
+        _, fake_set = _make_status_tracker()
+        # legacy chunk from the old id scheme  <doc>:<n>
+        ephemeral_collection.add(
+            ids=[f"{doc_id}:0"], documents=["old"],
+            metadatas=[{"doc_id": str(doc_id)}], embeddings=[[0.1] * 16],
+        )
+        with (
+            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
+            patch.object(idx, "_set_document_status", side_effect=fake_set),
+            patch.object(idx, "get_embeddings") as ge,
+        ):
+            ge.return_value.embed_documents.side_effect = lambda t: [[0.1] * 16 for _ in t]
+            pages = idx.index_chunks(doc_id, _make_chunks(2, doc_id))
+        ids = set(ephemeral_collection.get(where={"doc_id": str(doc_id)})["ids"])
+        assert f"{doc_id}:0" not in ids
+        assert pages == [1, 2]
+
+    def test_track_status_false_leaves_status_alone(self, ephemeral_collection):
+        from app import index as idx
+        doc_id = uuid.uuid4()
+        statuses, fake_set = _make_status_tracker()
+        with (
+            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
+            patch.object(idx, "_set_document_status", side_effect=fake_set),
+            patch.object(idx, "get_embeddings") as ge,
+        ):
+            ge.return_value.embed_documents.side_effect = lambda t: [[0.1] * 16 for _ in t]
+            idx.index_chunks(doc_id, _make_chunks(3, doc_id), track_status=False)
+        assert statuses == []
 
 
 # ---------------------------------------------------------------------------

@@ -159,6 +159,15 @@ class PageTag(Base):
     is_image_only: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Tiered indexing: every page's text is stored so tier-2 pages can be found
+    # by keyword and embedded later, without re-reading the PDF.
+    tier: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=2, server_default="2"
+    )
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    indexed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # relationships
     document: Mapped[Document] = relationship("Document", back_populates="page_tags")

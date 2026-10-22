@@ -122,6 +122,7 @@ def _metadata_from(tag: TagResult, page: PageResult, pdf_name: str) -> Dict[str,
         "unit": tag.unit,
         "content_type": tag.content_type,
         "source_type": "table" if tag.section in STATEMENT_SECTIONS else "narrative",
+        "tier": getattr(tag, "tier", 2),
     }
 
 # ---------------------------------------------------------------------------

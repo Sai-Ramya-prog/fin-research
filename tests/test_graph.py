@@ -47,6 +47,7 @@ class FakePageResult:
 class FakeTagResult:
     pdf_page: int
     section: str = "other"
+    tier: int = 2
     scope: str = "consolidated"
     unit: str = ""
     content_type: str = "narrative"
@@ -84,6 +85,16 @@ def _patch_env(monkeypatch):
     monkeypatch.setenv("CHROMA_COLLECTION", "col")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///./test_graph.db")
     monkeypatch.setenv("GOOGLE_API_KEY", "dummy")
+
+
+@pytest.fixture(autouse=True)
+def _patch_page_store():
+    """Page-text storage + indexed flags hit the DB; mock them in every test."""
+    with (
+        patch("app.agents.document_agent.graph.save_pages"),
+        patch("app.agents.document_agent.graph.mark_indexed"),
+    ):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -208,7 +219,8 @@ class TestNodeChunk:
         """Table-type pages should be re-parsed with layout-preserving text."""
         from app.agents.document_agent.graph import _node_chunk
         pages = [FakePageResult(pdf_page=1, text="original")]
-        tags = [FakeTagResult(pdf_page=1, content_type="table")]
+        tags = [FakeTagResult(pdf_page=1, content_type="table",
+                              section="balance_sheet", tier=1)]
         state = _make_state(pages=pages, tags=tags)
 
         layout_map = {1: "layout-preserved text"}

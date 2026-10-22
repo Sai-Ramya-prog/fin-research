@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 32
     embedding_batch_pause_seconds: float = 2.0
 
+    # tiered = embed only tier-1 pages (statements, auditor, MD&A, notes) on
+    # upload; the rest is embedded on demand. full = embed every page.
+    index_mode: Literal["tiered", "full"] = "tiered"
+
     # ── Provider API keys ─────────────────────────────────────────────────
     google_api_key: str = ""
     openai_api_key: str = ""

@@ -63,6 +63,15 @@ class DocumentStatusOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class IndexMoreIn(BaseModel):
+    query: str
+    limit: int = 5
+
+
+class IndexMoreOut(BaseModel):
+    embedded_pages: list[int]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Dependency
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,7 +89,7 @@ def _delete_chroma_chunks(document_id: uuid.UUID) -> None:
     try:
         collection = _get_collection()
         existing = collection.get(
-            where={"doc_id": str(document_id)}, include=["ids"]
+            where={"doc_id": str(document_id)}, include=[]
         )
         if existing and existing.get("ids"):
             collection.delete(ids=existing["ids"])
@@ -161,3 +170,31 @@ def delete_document(
     db.delete(doc)
     db.commit()
     logger.info("Document %s deleted", document_id)
+
+
+@router.post(
+    "/{document_id}/index-more",
+    response_model=IndexMoreOut,
+    summary="Embed extra (tier-2) pages that match a question",
+)
+def index_more_pages(
+    document_id: uuid.UUID,
+    body: IndexMoreIn,
+    db: DBSession = Depends(_db),
+) -> IndexMoreOut:
+    """
+    Tiered indexing embeds only the important pages after upload. Call this
+    when a question needs other pages: the best keyword matches among the
+    not-yet-embedded pages are embedded and become searchable.
+    """
+    from app.embeddings import QuotaExhaustedError
+    from app.lazy_index import index_more
+
+    doc = db.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    try:
+        pages = index_more(document_id, body.query, limit=max(1, min(body.limit, 20)))
+    except QuotaExhaustedError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    return IndexMoreOut(embedded_pages=pages)

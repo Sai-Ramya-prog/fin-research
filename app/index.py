@@ -140,13 +140,45 @@ def _existing_ids(collection: Collection, ids: List[str]) -> set[str]:
     return found
 
 
+def _delete_ids(collection: Collection, ids: List[str]) -> None:
+    for start in range(0, len(ids), CHROMA_MAX_BATCH):
+        collection.delete(ids=ids[start : start + CHROMA_MAX_BATCH])
+
+
 def _delete_document_chunks(collection: Collection, document_id: uuid.UUID) -> int:
     """Delete every stored chunk of a document. Returns how many were removed."""
     res = collection.get(where={"doc_id": str(document_id)}, include=[])
     old_ids = res.get("ids", []) if res else []
-    for start in range(0, len(old_ids), CHROMA_MAX_BATCH):
-        collection.delete(ids=old_ids[start : start + CHROMA_MAX_BATCH])
+    _delete_ids(collection, old_ids)
     return len(old_ids)
+
+
+def _delete_legacy_ids(collection: Collection, document_id: uuid.UUID) -> int:
+    """Remove chunks stored with the OLD id scheme ``<doc>:<n>``.
+
+    New ids are ``<doc>:<pdf_page>:<k>`` (two colons). Old-scheme chunks were
+    built by an earlier version of the chunker and would pollute search.
+    """
+    res = collection.get(where={"doc_id": str(document_id)}, include=[])
+    legacy = [i for i in (res.get("ids", []) if res else []) if i.count(":") == 1]
+    _delete_ids(collection, legacy)
+    return len(legacy)
+
+
+def chunk_ids(document_id: uuid.UUID, chunks: List[Dict[str, Any]]) -> List[str]:
+    """Deterministic ids ``<doc>:<pdf_page>:<k>`` (k = chunk number on that page).
+
+    Based on the page, not on the position in the whole list, so embedding more
+    pages later (tier 2) never changes the ids of pages already stored.
+    """
+    counters: Dict[str, int] = {}
+    ids: List[str] = []
+    for c in chunks:
+        page = str(c["metadata"].get("pdf_page", 0))
+        k = counters.get(page, 0)
+        counters[page] = k + 1
+        ids.append(f"{document_id}:{page}:{k}")
+    return ids
 
 
 def _prepare_metadata(meta_in: Dict[str, Any], document_id: uuid.UUID, i: int) -> Dict[str, Any]:
@@ -165,29 +197,36 @@ def index_chunks(
     document_id: uuid.UUID,
     chunks: List[Dict[str, Any]],
     force: bool = False,
-) -> None:
+    track_status: bool = True,
+) -> List[int]:
     """Index *chunks* for a single document in Chroma Cloud.
 
-    **Resumable**: chunk ids are deterministic (``<doc_id>:<index>``). Before
-    embedding anything we ask Chroma which ids are already stored and embed only
-    the missing ones, so a re-run after a failure (or restart) never pays for
-    the same chunk twice.
+    **Resumable**: ids are deterministic, so before embedding anything we ask
+    Chroma which ids already exist and embed only the missing ones. A re-run
+    after a failure never pays for the same chunk twice.
 
-    ``force=True`` deletes the document's stored chunks first and re-embeds
-    everything (use after changing the chunking/tagging logic).
+    ``force=True`` deletes the document's stored chunks first and re-embeds.
+    ``track_status=False`` leaves ``Document.status`` alone (used when embedding
+    extra tier-2 pages for a document that is already ``ready``).
 
     A daily-quota error from Gemini stops immediately, marks the document
-    ``failed`` with a clear message, and re-raises ``QuotaExhaustedError``.
+    ``failed`` (when tracking status) and re-raises ``QuotaExhaustedError``.
     Chunks already written stay in Chroma for the next run.
+
+    Returns the PDF page numbers whose chunks are now all stored.
     """
     collection = _get_collection()
 
     if force:
         removed = _delete_document_chunks(collection, document_id)
         logger.info("force: deleted %d stored chunks for %s", removed, document_id)
+    else:
+        legacy = _delete_legacy_ids(collection, document_id)
+        if legacy:
+            logger.info("Removed %d old-format chunks for %s", legacy, document_id)
 
     total = len(chunks)
-    all_ids = [f"{document_id}:{i}" for i in range(total)]
+    all_ids = chunk_ids(document_id, chunks)
     done = _existing_ids(collection, all_ids)
     todo = [i for i in range(total) if all_ids[i] not in done]
     logger.info(
@@ -195,7 +234,8 @@ def index_chunks(
         document_id, total, len(done), len(todo),
     )
 
-    _set_document_status(document_id, "indexing")
+    if track_status:
+        _set_document_status(document_id, "indexing")
     emb = get_embeddings()
 
     try:
@@ -221,14 +261,18 @@ def index_chunks(
                     time.sleep(2 ** attempt)
             logger.info("Stored %d/%d new chunks", start + len(idxs), len(todo))
     except QuotaExhaustedError as exc:
-        _set_document_status(document_id, "failed", error_message=str(exc))
+        if track_status:
+            _set_document_status(document_id, "failed", error_message=str(exc))
         raise
     except Exception as exc:
-        _set_document_status(document_id, "failed", error_message=f"Indexing failed: {exc}")
+        if track_status:
+            _set_document_status(document_id, "failed", error_message=f"Indexing failed: {exc}")
         raise
 
-    _set_document_status(document_id, "ready")
+    if track_status:
+        _set_document_status(document_id, "ready")
     logger.info("Indexing complete for document %s", document_id)
+    return sorted({int(c["metadata"].get("pdf_page", 0)) for c in chunks})
 
 # ---------------------------------------------------------------------------
 # Utility – connection health check

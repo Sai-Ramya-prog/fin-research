@@ -24,7 +24,7 @@ Strategy
 
 Public API
 ──────────
-  tag_pages(pages, pdf_name="") → list[TagResult]
+  tag_pages(pages, pdf_name="") → list[TagResult]   (each result has tier 1 or 2)
   build_page_map(tag_results, company, output_path) → None
 """
 
@@ -60,6 +60,14 @@ VALID_SECTIONS = {
 STATEMENT_SECTIONS = {
     SECTION_BALANCE_SHEET, SECTION_PROFIT_LOSS,
     SECTION_CASH_FLOW, SECTION_EQUITY_CHANGES,
+}
+
+# Tier 1 = pages every agent needs, embedded immediately after upload:
+# the four statements, the auditor's report, MD&A and the notes.
+# Tier 2 = everything else (cover, business overview, ESG ...): stored as text
+# and embedded later, only when a question needs it.
+TIER1_SECTIONS = STATEMENT_SECTIONS | {
+    SECTION_AUDITOR_REPORT, SECTION_NOTES, SECTION_MDNA,
 }
 
 # Lines from the top to scan for the heading (after boilerplate stripping)
@@ -165,6 +173,7 @@ class TagResult:
     content_type: str = "narrative"
     printed_page: Optional[int] = None
     is_image_only: bool = False
+    tier: int = 2   # 1 = embed immediately, 2 = embed on demand
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -398,6 +407,7 @@ def tag_pages(
     resolved = _resolve_printed_pages([r.pdf_page for r in results], printed_candidates)
     for r, pp in zip(results, resolved):
         r.printed_page = pp
+        r.tier = 1 if (r.section in TIER1_SECTIONS and not r.is_image_only) else 2
 
     logger.info(
         "tag_pages: %s → %d pages, %d statement pages",

@@ -213,11 +213,13 @@ def _estimated_embedding_calls(doc_id: uuid.UUID) -> int | str:
 # Core seeding logic
 # ─────────────────────────────────────────────────────────────────────────────
 
-def seed_once() -> None:
+def seed_once(reprocess: bool = False) -> None:
     """
     Ensure all 4 seed documents are uploaded and processed.
 
-    Safe to call multiple times – already-ready documents are skipped.
+    Safe to call multiple times – already-ready documents are skipped, unless
+    ``reprocess=True`` (CLI: ``python -m app.seed --reprocess``), which re-runs
+    the whole pipeline for every seed document (e.g. after a pipeline change).
     Documents are processed one at a time so Gemini free-tier limits are
     respected.
     """
@@ -232,7 +234,7 @@ def seed_once() -> None:
         len(SEED_DOCUMENTS),
     )
 
-    if ready_before >= len(SEED_DOCUMENTS):
+    if ready_before >= len(SEED_DOCUMENTS) and not reprocess:
         logger.info(
             "seed: all %d documents already ready – nothing to do.",
             len(SEED_DOCUMENTS),
@@ -249,7 +251,7 @@ def seed_once() -> None:
 
         # ── Check if this document is already ready ──────────────────────────
         existing_doc = _find_existing_doc(session_id, filename)
-        if existing_doc is not None and existing_doc.status == "ready":
+        if existing_doc is not None and existing_doc.status == "ready" and not reprocess:
             logger.info(
                 "seed: %s (id=%s) already ready – skipping.",
                 filename,
@@ -368,8 +370,9 @@ def main() -> None:
         format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         stream=sys.stdout,
     )
-    logger.info("seed: invoked from CLI")
-    seed_once()
+    reprocess = "--reprocess" in sys.argv[1:]
+    logger.info("seed: invoked from CLI (reprocess=%s)", reprocess)
+    seed_once(reprocess=reprocess)
     logger.info("seed: CLI run complete.")
 
 

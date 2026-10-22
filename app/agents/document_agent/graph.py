@@ -43,10 +43,12 @@ from app.agents.document_agent.state import DocumentState
 from app.chunk import chunk_pages
 from app.db.engine import session_scope
 from app.db.models import Document
+from app.config import settings
 from app.index import index_chunks
+from app.pages import mark_indexed, save_pages
 from app.parse import parse_fast, parse_layout
 from app.storage import download_to_temp
-from app.tag import tag_pages
+from app.tag import STATEMENT_SECTIONS, tag_pages
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +140,11 @@ def _node_tag(state: DocumentState) -> DocumentState:
             statement_count,
             elapsed,
         )
+        # Store every page's text + tags (no embedding, no quota). Tier-2 pages
+        # stay here until a question needs them.
+        save_pages(doc_id, pages, tags)
+        tier1 = sum(1 for t in tags if getattr(t, "tier", 2) == 1)
+        logger.info("[tag] doc=%s  stored %d pages, tier1=%d", doc_id, len(tags), tier1)
         return {**state, "tags": tags}
 
     except Exception as exc:
@@ -166,7 +173,7 @@ def _node_chunk(state: DocumentState) -> DocumentState:
         statement_page_nums = [
             t.pdf_page
             for t in tags
-            if t.content_type == "table" and not t.is_image_only
+            if t.section in STATEMENT_SECTIONS and not t.is_image_only
         ]
         if statement_page_nums:
             layout_text_map: dict[int, str] = parse_layout(pdf_path, statement_page_nums)
@@ -180,8 +187,15 @@ def _node_chunk(state: DocumentState) -> DocumentState:
                 for p in pages
             ]
 
-        # chunk_pages signature: (pages, tags, pdf_name="") — no extra kwargs
-        raw_chunks = chunk_pages(pages, tags, pdf_name=pdf_name)
+        # Tiered mode: chunk only tier-1 pages. Tier-2 pages are chunked and
+        # embedded later, on demand (see app/lazy_index.py).
+        if settings.index_mode == "tiered":
+            pairs = [(p, t) for p, t in zip(pages, tags) if getattr(t, "tier", 2) == 1]
+            chunk_src_pages = [p for p, _ in pairs]
+            chunk_src_tags = [t for _, t in pairs]
+        else:
+            chunk_src_pages, chunk_src_tags = pages, tags
+        raw_chunks = chunk_pages(chunk_src_pages, chunk_src_tags, pdf_name=pdf_name)
 
         # Inject pipeline-level metadata that chunk_pages doesn’t know about.
         # index_chunks also sets doc_id but it’s cleaner to have it here too.
@@ -223,7 +237,8 @@ def _node_index(state: DocumentState) -> DocumentState:
     # index_chunks sets status to "indexing" then "ready" (or "failed") internally
 
     try:
-        index_chunks(doc_id, chunks)
+        embedded_pages = index_chunks(doc_id, chunks)
+        mark_indexed(doc_id, embedded_pages or [])
         elapsed = time.perf_counter() - t0
         logger.info(
             "[index] doc=%s  chunks=%d  elapsed=%.2fs",
