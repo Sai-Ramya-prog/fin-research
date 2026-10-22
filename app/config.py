@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     storage_region: str = "us-east-1"
 
     # ── API / CORS ────────────────────────────────────────────────────────
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://localhost:5173,http://localhost:4173"
 
     # ─────────────────────────────────────────────────────────────────────
     # Validators

@@ -41,7 +41,7 @@ from langgraph.graph import END, StateGraph
 
 from app.agents.document_agent.state import DocumentState
 from app.chunk import chunk_pages
-from app.db.engine import get_session
+from app.db.engine import session_scope
 from app.db.models import Document
 from app.index import index_chunks
 from app.parse import parse_fast, parse_layout
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 def _set_status(doc_id: uuid.UUID, status: str, error_message: str | None = None) -> None:
     """Update Document.status (and optional error_message) inside a new session."""
-    with get_session() as db:
+    with session_scope() as db:
         doc = db.get(Document, doc_id)
         if doc is None:
             raise RuntimeError(f"Document {doc_id} not found")
@@ -70,7 +70,7 @@ def _set_status(doc_id: uuid.UUID, status: str, error_message: str | None = None
 
 def _get_document(doc_id: uuid.UUID) -> Document:
     """Return the Document ORM row (detached copy)."""
-    with get_session() as db:
+    with session_scope() as db:
         doc = db.get(Document, doc_id)
         if doc is None:
             raise RuntimeError(f"Document {doc_id} not found in database")

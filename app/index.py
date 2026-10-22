@@ -44,7 +44,7 @@ from chromadb.api.models.Collection import Collection
 from app.config import settings
 from app.embeddings import get_embeddings, embedding_fingerprint
 from app.db.models import Document
-from app.db.engine import get_session
+from app.db.engine import session_scope
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ def _set_document_status(
     The function commits immediately because indexing can be a long‑running
     background task and we want the status visible to the API.
     """
-    with get_session() as session:
+    with session_scope() as session:
         doc = session.get(Document, doc_id)
         if doc is None:
             raise RuntimeError(f"Document {doc_id} not found while updating status")
@@ -289,7 +289,7 @@ def ping_chroma() -> bool:
 if __name__ == "__main__":  # pragma: no cover
     import argparse
     from app.db.models import Session, Document
-    from app.db.engine import get_session
+    from app.db.engine import session_scope
     from app.chunk import chunk_pages
     from app.parse import parse_fast
     from app.tag import tag_pages
@@ -298,7 +298,7 @@ if __name__ == "__main__":  # pragma: no cover
     parser.add_argument("--session-id", type=str, help="Only re‑index a single session")
     args = parser.parse_args()
 
-    with get_session() as db:
+    with session_scope() as db:
         query = db.query(Document).filter(Document.status == "ready")
         if args.session_id:
             query = query.filter(Document.session_id == uuid.UUID(args.session_id))

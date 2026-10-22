@@ -14,6 +14,7 @@ SQLAlchemy engine + session factory.
 from __future__ import annotations
 
 from collections.abc import Generator
+from contextlib import contextmanager
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -56,6 +57,29 @@ def get_session() -> Generator[Session, None, None]:
         @router.get("/items")
         def list_items(db: Session = Depends(get_session)):
             ...
+    """
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@contextmanager
+def session_scope() -> Generator[Session, None, None]:
+    """
+    Context-manager version of get_session for plain code (agents, seed,
+    CLI scripts)::
+
+        with session_scope() as db:
+            ...
+
+    ``get_session`` above is a generator meant for FastAPI's ``Depends`` and
+    cannot be used in a ``with`` statement.
     """
     db = SessionLocal()
     try:
