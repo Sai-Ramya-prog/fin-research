@@ -315,3 +315,27 @@ class TestGeminiProvider:
         parts = fp.split(":")
         assert len(parts) == 3
         assert int(parts[2]) > 0
+
+
+class TestDailyQuotaDetection:
+    def test_per_day_quota_is_detected(self):
+        from app.embeddings import _is_daily_quota_error
+        e = Exception("429 RESOURCE_EXHAUSTED EmbedContentRequestsPerDayPerProjectPerModel-FreeTier")
+        assert _is_daily_quota_error(e)
+
+    def test_long_retry_delay_is_detected(self):
+        from app.embeddings import _is_daily_quota_error
+        assert _is_daily_quota_error(Exception("429 quota exceeded. retryDelay: '40000s'"))
+
+    def test_short_retry_delay_is_not_daily(self):
+        from app.embeddings import _is_daily_quota_error
+        assert not _is_daily_quota_error(Exception("429 rate limit. retryDelay: '12s'"))
+
+    def test_daily_quota_stops_without_retry(self):
+        from unittest.mock import MagicMock
+        from app.embeddings import QuotaExhaustedError, _RetryEmbeddings
+        inner = MagicMock()
+        inner.embed_documents.side_effect = Exception("429 ...PerDay...")
+        with pytest.raises(QuotaExhaustedError):
+            _RetryEmbeddings(inner).embed_documents(["a"])
+        assert inner.embed_documents.call_count == 1

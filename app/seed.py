@@ -176,6 +176,18 @@ def _create_doc_row(
         db.close()
 
 
+def _quota_exhausted(doc_id: uuid.UUID) -> bool:
+    """True if the document just failed because the daily Gemini quota ran out."""
+    db = SessionLocal()
+    try:
+        doc = db.get(Document, doc_id)
+        return bool(
+            doc and doc.status == "failed" and "quota exhausted" in (doc.error_message or "")
+        )
+    finally:
+        db.close()
+
+
 def _estimated_embedding_calls(doc_id: uuid.UUID) -> int | str:
     """
     Estimate the number of embedding API calls made for a document.
@@ -309,6 +321,13 @@ def seed_once() -> None:
             )
             # Continue to the next document; don't abort the whole seed run.
         else:
+            if _quota_exhausted(doc_id):
+                logger.error(
+                    "seed: Gemini daily quota exhausted - stopping. Chunks already "
+                    "stored are kept; re-run `python -m app.seed` after the quota "
+                    "resets (~12:30 pm IST) and it resumes where it stopped."
+                )
+                return
             elapsed_agent = time.perf_counter() - t_agent
             est_calls = _estimated_embedding_calls(doc_id)
             logger.info(

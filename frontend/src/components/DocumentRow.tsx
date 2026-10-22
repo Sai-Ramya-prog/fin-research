@@ -29,7 +29,7 @@ export function DocumentRow({ initialDoc, onDelete }: Props) {
     const id = setInterval(async () => {
       try {
         const fresh = await getDocument(doc.id)
-        setDoc(fresh)
+        setDoc(prev => ({ ...prev, ...fresh }))
         if (TERMINAL.has(fresh.status)) clearInterval(id)
       } catch {
         clearInterval(id)

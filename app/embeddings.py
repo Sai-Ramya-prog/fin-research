@@ -26,8 +26,9 @@ Rate-limit handling (Gemini free tier)
   - Up to EMBEDDING_MAX_RETRIES attempts (default 6).
   - Exponential back-off: 2^attempt seconds, jittered ±10 %.
   - After each *batch* (list of texts), sleep EMBEDDING_BATCH_PAUSE_SECONDS.
-  - A 429 or 5xx error slows the run down; it never fails the document
-    immediately.
+  - A per-minute 429 or 5xx error slows the run down (retry + back-off).
+  - A DAILY-quota 429 raises QuotaExhaustedError immediately (no retries,
+    so no quota is wasted).
 
 Design note: we intentionally pick ONE model for the whole project.
 Vectors produced by different models are incompatible and cannot be
@@ -39,6 +40,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import random
+import re
 import time
 from typing import Any
 
@@ -54,6 +56,29 @@ _FAKE_DIMENSION = 768
 # Retry settings
 _MAX_RETRIES = 6
 _BASE_DELAY_SECONDS = 2.0
+
+
+class QuotaExhaustedError(RuntimeError):
+    """The provider's DAILY quota is used up. Retrying now is pointless."""
+
+
+# A 429 whose suggested retry delay is longer than this is a daily/hourly quota,
+# not a per-minute burst limit.
+_LONG_DELAY_SECONDS = 300
+
+
+def _is_daily_quota_error(exc: BaseException) -> bool:
+    """True when a 429 says the per-day quota is gone (e.g. ``...PerDay...``
+    quota id, or a retry delay of minutes/hours)."""
+    msg = str(exc)
+    if "PerDay" in msg or "per day" in msg.lower():
+        return True
+    m = re.search(r"retry(?:Delay|\s+in)\D{0,10}?(\d+(?:\.\d+)?)\s*(h|m|s)", msg, re.I)
+    if m:
+        value, unit = float(m.group(1)), m.group(2).lower()
+        seconds = value * {"h": 3600, "m": 60, "s": 1}[unit]
+        return seconds >= _LONG_DELAY_SECONDS
+    return False
 
 
 # ── Fake provider ─────────────────────────────────────────────────────────────
@@ -124,6 +149,12 @@ class _RetryEmbeddings(Embeddings):
             except Exception as exc:
                 if not self._is_retryable(exc):
                     raise
+                if _is_daily_quota_error(exc):
+                    raise QuotaExhaustedError(
+                        "Gemini daily embedding quota exhausted. "
+                        "It resets about 12:30 pm IST (midnight Pacific); "
+                        "re-run then or enable billing on the API key."
+                    ) from exc
                 last_exc = exc
                 if attempt == self._max_retries:
                     break

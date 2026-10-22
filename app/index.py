@@ -42,7 +42,7 @@ import chromadb
 from chromadb.api.models.Collection import Collection
 
 from app.config import settings
-from app.embeddings import get_embeddings, embedding_fingerprint
+from app.embeddings import QuotaExhaustedError, get_embeddings, embedding_fingerprint
 from app.db.models import Document
 from app.db.engine import session_scope
 
@@ -130,139 +130,103 @@ def _set_document_status(
 # Core indexing function
 # ---------------------------------------------------------------------------
 
+def _existing_ids(collection: Collection, ids: List[str]) -> set[str]:
+    """Return the subset of *ids* that already exist in the collection."""
+    found: set[str] = set()
+    for start in range(0, len(ids), CHROMA_MAX_BATCH):
+        part = ids[start : start + CHROMA_MAX_BATCH]
+        res = collection.get(ids=part, include=[])
+        found.update(res.get("ids", []))
+    return found
+
+
+def _delete_document_chunks(collection: Collection, document_id: uuid.UUID) -> int:
+    """Delete every stored chunk of a document. Returns how many were removed."""
+    res = collection.get(where={"doc_id": str(document_id)}, include=[])
+    old_ids = res.get("ids", []) if res else []
+    for start in range(0, len(old_ids), CHROMA_MAX_BATCH):
+        collection.delete(ids=old_ids[start : start + CHROMA_MAX_BATCH])
+    return len(old_ids)
+
+
+def _prepare_metadata(meta_in: Dict[str, Any], document_id: uuid.UUID, i: int) -> Dict[str, Any]:
+    meta = dict(meta_in)
+    meta.setdefault("doc_id", str(document_id))
+    meta.setdefault("chunk_index", i)
+    if meta.get("printed_page") in (None, ""):
+        meta["printed_page"] = -1
+    for k, v in list(meta.items()):
+        if v is None:
+            meta[k] = ""
+    return meta
+
+
 def index_chunks(
     document_id: uuid.UUID,
     chunks: List[Dict[str, Any]],
+    force: bool = False,
 ) -> None:
     """Index *chunks* for a single document in Chroma Cloud.
 
-    The function is **idempotent** – any pre‑existing chunks for the same
-    ``document_id`` are deleted before the new ones are added.  It is also
-    **resumable** – if a quota or network error aborts the run, the document is
-    marked ``failed`` and the next invocation will start again, skipping already
-    indexed chunks because they have been removed only on successful start.
+    **Resumable**: chunk ids are deterministic (``<doc_id>:<index>``). Before
+    embedding anything we ask Chroma which ids are already stored and embed only
+    the missing ones, so a re-run after a failure (or restart) never pays for
+    the same chunk twice.
+
+    ``force=True`` deletes the document's stored chunks first and re-embeds
+    everything (use after changing the chunking/tagging logic).
+
+    A daily-quota error from Gemini stops immediately, marks the document
+    ``failed`` with a clear message, and re-raises ``QuotaExhaustedError``.
+    Chunks already written stay in Chroma for the next run.
     """
-    # -------------------------------------------------------------------
-    # 1️⃣  Prepare collection and delete old chunks (if any)
-    # -------------------------------------------------------------------
     collection = _get_collection()
-    # Delete existing chunks belonging to this document – use a filter on the
-    # metadata field ``doc_id`` which we store as a string.
-    try:
-        existing = collection.get(
-            where={"doc_id": str(document_id)}, include=["ids"]
-        )
-        if existing and existing["ids"]:
-            collection.delete(ids=existing["ids"])
-            logger.info(
-                "Deleted %d old chunks for document %s", len(existing["ids"]), document_id
-            )
-    except Exception as exc:  # pragma: no cover – defensive
-        logger.warning(
-            "Failed to clean up old chunks for %s – proceeding anyway: %s",
-            document_id,
-            exc,
-        )
 
-    # -------------------------------------------------------------------
-    # 2️⃣  Iterate over batches of up to CHROMA_MAX_BATCH chunks
-    # -------------------------------------------------------------------
+    if force:
+        removed = _delete_document_chunks(collection, document_id)
+        logger.info("force: deleted %d stored chunks for %s", removed, document_id)
+
     total = len(chunks)
-    logger.info("Indexing %d chunks for document %s", total, document_id)
+    all_ids = [f"{document_id}:{i}" for i in range(total)]
+    done = _existing_ids(collection, all_ids)
+    todo = [i for i in range(total) if all_ids[i] not in done]
+    logger.info(
+        "Indexing %s: %d chunks total, %d already stored, %d to embed",
+        document_id, total, len(done), len(todo),
+    )
 
-    # Update status – indexing started
     _set_document_status(document_id, "indexing")
+    emb = get_embeddings()
 
-    for batch_start in range(0, total, CHROMA_MAX_BATCH):
-        batch = chunks[batch_start : batch_start + CHROMA_MAX_BATCH]
-        texts = [c["text"] for c in batch]
-        metadatas = []
-        ids = []
-        for i, chunk in enumerate(batch, start=batch_start):
-            meta = dict(chunk["metadata"])  # shallow copy
-            # Ensure all required keys exist and are Chroma‑safe
-            meta.setdefault("doc_id", str(document_id))
-            meta.setdefault("chunk_index", i)
-            # Convert possible ``None`` values to empty string or -1 (metadata
-            # cannot contain ``None``).  ``printed_page`` is the only field that
-            # may be ``None``.
-            if meta.get("printed_page") in (None, ""):
-                meta["printed_page"] = -1
-            # Chroma expects simple scalar types – everything else will be cast
-            # to string automatically, but we keep it explicit.
-            for k, v in list(meta.items()):
-                if v is None:
-                    meta[k] = ""
-            metadatas.append(meta)
-            # Chunk ID is deterministic so that re‑runs produce the same ID;
-            # format: <doc_id>:<index>
-            ids.append(f"{document_id}:{i}")
+    try:
+        for start in range(0, len(todo), EMBED_BATCH_SIZE):
+            idxs = todo[start : start + EMBED_BATCH_SIZE]
+            texts = [chunks[i]["text"] for i in idxs]
+            ids = [all_ids[i] for i in idxs]
+            metas = [_prepare_metadata(chunks[i]["metadata"], document_id, i) for i in idxs]
 
-        # ----------------------------------------------------------------
-        # 3️⃣  Embed in sub‑batches respecting the embedding service limits
-        # ----------------------------------------------------------------
-        embeddings: List[List[float]] = []
-        emb = get_embeddings()
-        for emb_start in range(0, len(texts), EMBED_BATCH_SIZE):
-            sub_texts = texts[emb_start : emb_start + EMBED_BATCH_SIZE]
-            # Retry wrapper for the embed call – simple exponential back‑off
+            vectors = emb.embed_documents(texts)  # retries + quota detection inside
+
+            # Write straight after each embedded batch so progress is never lost.
             attempt = 0
             while True:
                 try:
-                    sub_emb = emb.embed_documents(sub_texts)
-                    embeddings.extend(sub_emb)
+                    collection.add(ids=ids, documents=texts, metadatas=metas, embeddings=vectors)
                     break
-                except Exception as exc:  # pragma: no cover – network errors
+                except Exception as exc:  # network errors
                     attempt += 1
                     if attempt >= 3:
-                        # Mark document as failed and abort indexing
-                        msg = f"Embedding failed after {attempt} attempts: {exc}"
-                        logger.error(msg)
-                        _set_document_status(document_id, "failed", error_message=msg)
                         raise
-                    backoff = 2 ** attempt
-                    logger.warning(
-                        "Embedding error (attempt %d) – backing off %ds: %s",
-                        attempt,
-                        backoff,
-                        exc,
-                    )
-                    time.sleep(backoff)
-            # Pause between embedding batches to respect free‑tier limits
-            time.sleep(EMBED_BATCH_PAUSE)
+                    logger.warning("Chroma add error (attempt %d): %s", attempt, exc)
+                    time.sleep(2 ** attempt)
+            logger.info("Stored %d/%d new chunks", start + len(idxs), len(todo))
+    except QuotaExhaustedError as exc:
+        _set_document_status(document_id, "failed", error_message=str(exc))
+        raise
+    except Exception as exc:
+        _set_document_status(document_id, "failed", error_message=f"Indexing failed: {exc}")
+        raise
 
-        # ----------------------------------------------------------------
-        # 4️⃣  Add documents to Chroma (using pre‑computed embeddings)
-        # ----------------------------------------------------------------
-        attempt = 0
-        while True:
-            try:
-                collection.add(
-                    ids=ids,
-                    documents=texts,
-                    metadatas=metadatas,
-                    embeddings=embeddings,
-                )
-                logger.info(
-                    "Added %d chunks (batch %d‑%d) to Chroma", len(ids), batch_start + 1, batch_start + len(ids)
-                )
-                break
-            except Exception as exc:  # pragma: no cover – network / quota errors
-                attempt += 1
-                if attempt >= 3:
-                    msg = f"Chroma add failed after {attempt} attempts: {exc}"
-                    logger.error(msg)
-                    _set_document_status(document_id, "failed", error_message=msg)
-                    raise
-                backoff = 2 ** attempt
-                logger.warning(
-                    "Chroma add error (attempt %d) – backing off %ds: %s", attempt, backoff, exc
-                )
-                time.sleep(backoff)
-
-    # -------------------------------------------------------------------
-    # 5️⃣  Finalise – mark document ready
-    # -------------------------------------------------------------------
     _set_document_status(document_id, "ready")
     logger.info("Indexing complete for document %s", document_id)
 

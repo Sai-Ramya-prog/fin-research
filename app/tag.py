@@ -118,30 +118,22 @@ _HEADING_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 # ── Content-body fallback patterns ────────────────────────────────────────────
-# Used when no explicit heading title is found (e.g. Infosys p274 which has
-# no "Balance Sheet" title – it was on the preceding divider page).
-# Matched against the full page text (not just heading lines).
-_BODY_FALLBACK_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(
-        r"non.?current\s+assets|equity\s+and\s+liabilit|total\s+assets"
-        r"|property,?\s+plant",
-        re.I,
-    ), SECTION_BALANCE_SHEET),
-    (re.compile(
-        r"revenue\s+from\s+operations|other\s+income|total\s+income"
-        r"|profit\s+before\s+tax|earnings?\s+per\s+(equity\s+)?share",
-        re.I,
-    ), SECTION_PROFIT_LOSS),
-    (re.compile(
-        r"cash\s+(flow|used\s+in|generated\s+from|from)\s+(operating|investing|financing)"
-        r"|(operating|investing|financing)\s+activit",
-        re.I,
-    ), SECTION_CASH_FLOW),
-    (re.compile(
-        r"changes?\s+in\s+(other\s+)?equity|other\s+comprehensive\s+income.*equity",
-        re.I,
-    ), SECTION_EQUITY_CHANGES),
+# Used only when no heading title is found (e.g. Infosys p274 whose title sat on
+# the divider page). To avoid tagging notes / MD&A pages as statements, a page
+# qualifies ONLY if it contains ALL the markers of that statement.
+_BODY_FALLBACK_ALL: list[tuple[list[re.Pattern], str]] = [
+    ([re.compile(r"total\s+assets", re.I),
+      re.compile(r"equity\s+and\s+liabilit", re.I)], SECTION_BALANCE_SHEET),
+    ([re.compile(r"revenue\s+from\s+operations", re.I),
+      re.compile(r"profit\s+before\s+tax", re.I),
+      re.compile(r"earnings?\s+per\s+(equity\s+)?share", re.I)], SECTION_PROFIT_LOSS),
+    ([re.compile(r"operating\s+activit", re.I),
+      re.compile(r"investing\s+activit", re.I),
+      re.compile(r"financing\s+activit", re.I)], SECTION_CASH_FLOW),
 ]
+
+# Body fallback needs at least this many numeric tokens (statements are dense)
+_BODY_FALLBACK_MIN_NUMERIC = 20
 
 # ── Scope patterns ────────────────────────────────────────────────────────────
 _SCOPE_CONSOLIDATED_RE = re.compile(r"consolidated", re.I)
@@ -149,8 +141,8 @@ _SCOPE_STANDALONE_RE   = re.compile(r"\bstandalone\b|\bseparate\b|\bunconsolidat
 
 # ── Unit patterns ─────────────────────────────────────────────────────────────
 _UNIT_RE = re.compile(
-    r"(?:in\s+)?(?:₹|rs\.?|inr|usd?|us\$|\bc\b)\s*(?:in\s+)?"
-    r"(?:crore|crores?|lakh|million|billion|thousand)",
+    r"(?P<cur>₹|rs\.?|inr|usd?|us\$|\bc\b|`)\s*(?:in\s+)?"
+    r"(?P<scale>crores?|lakhs?|millions?|billions?|thousands?)",
     re.I,
 )
 
@@ -158,7 +150,7 @@ _UNIT_RE = re.compile(
 _PRINTED_PAGE_RE = re.compile(r"(?:^|\|\s*)(\d{1,4})\s*(?:\||$)", re.M)
 
 # ── Continuation marker ───────────────────────────────────────────────────────
-_CONTD_RE = re.compile(r"\(\s*contd\.?\s*\)|\bcontinued\b", re.I)
+_CONTD_RE = re.compile(r"\(\s*(contd\.?|continued)\s*\)", re.I)
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -188,6 +180,33 @@ def _cleaned_heading_lines(text: str) -> list[str]:
     return cleaned[:_HEADING_LINES]
 
 
+_TITLE_MAX_CHARS = 100
+_FOOTER_LINES = 6
+
+
+_TITLE_PREFIX_RE = re.compile(r"^(the\s+)?((consolidated|standalone)\s+)?(financial\s+)?", re.I)
+
+
+def _strip_title_prefix(line: str) -> str:
+    """"Consolidated Balance Sheet" -> "Balance Sheet" so the title must START the line."""
+    return _TITLE_PREFIX_RE.sub("", line.strip(), count=1)
+
+
+def _title_lines(text: str) -> list[str]:
+    """Candidate title lines: first cleaned lines plus the LAST few lines
+    (Infosys prints "Consolidated Balance Sheet" at the bottom of the page)."""
+    raw = [l.strip() for l in text.splitlines() if l.strip()]
+    cleaned = [l for l in raw if not _BOILERPLATE_RE.match(l)]
+    head = cleaned[:_HEADING_LINES]
+    foot = cleaned[-_FOOTER_LINES:]
+    seen, out = set(), []
+    for l in head + foot:
+        if l not in seen:
+            seen.add(l)
+            out.append(l)
+    return out
+
+
 def _heading_text(text: str) -> str:
     """Joined heading zone (cleaned lines + raw first lines for scope)."""
     raw_lines = [l.strip() for l in text.splitlines() if l.strip()]
@@ -203,17 +222,33 @@ def _numeric_density(text: str) -> int:
 
 def _detect_section(heading: str, full_text: str) -> Optional[str]:
     """
-    Try heading patterns first; fall back to body patterns if none match.
-    Body fallback only activates when the page has substantial numeric content
-    (≥10 numeric tokens) to avoid false positives in narrative pages.
+    A section is recognised only from a SHORT title line (≤100 chars) near the
+    top or bottom of the page - not from a phrase buried in a sentence, which is
+    what caused notes and narrative pages to be tagged as statements.
+    If no title is found, a strict body fallback (all markers of a statement +
+    dense numbers) handles pages whose title sits on a divider page.
     """
-    for pattern, section in _HEADING_PATTERNS:
-        if pattern.search(heading):
-            return section
-    # Body fallback – only for pages with numbers (financial data pages)
-    if _numeric_density(full_text) >= 10:
-        for pattern, section in _BODY_FALLBACK_PATTERNS:
-            if pattern.search(full_text):
+    for line in _title_lines(full_text):
+        if len(line) > _TITLE_MAX_CHARS:
+            continue
+        is_notes_line = bool(re.match(r"\s*notes?\b", line, re.I))
+        for pattern, section in _HEADING_PATTERNS:
+            if section == SECTION_NOTES:
+                if pattern.search(line):
+                    return section
+                continue
+            if is_notes_line:
+                continue  # "Notes to the balance sheet" is a note, not the statement
+            if pattern.match(_strip_title_prefix(line)):
+                # A real statement page is dense with numbers. A titled page
+                # without them (MD&A discussion, a note mentioning "cash flow")
+                # is not the statement itself.
+                if section in STATEMENT_SECTIONS and _numeric_density(full_text) < _BODY_FALLBACK_MIN_NUMERIC:
+                    continue
+                return section
+    if _numeric_density(full_text) >= _BODY_FALLBACK_MIN_NUMERIC:
+        for patterns, section in _BODY_FALLBACK_ALL:
+            if all(p.search(full_text) for p in patterns):
                 return section
     return None
 
@@ -227,8 +262,14 @@ def _detect_scope(heading: str) -> str:
 
 
 def _detect_unit(text: str) -> str:
+    """Return a normalised unit such as "₹ in crore" or "US$ in million"."""
     m = _UNIT_RE.search(text[:1200])
-    return m.group(0).strip() if m else ""
+    if not m:
+        return ""
+    scale = m.group("scale").lower().rstrip("s")
+    cur = m.group("cur").lower()
+    symbol = "US$" if cur in ("us$", "usd", "us") else "₹"
+    return f"{symbol} in {scale}"
 
 
 def _detect_printed_page(text: str) -> Optional[int]:
@@ -240,6 +281,34 @@ def _detect_printed_page(text: str) -> Optional[int]:
         if 1 <= num <= 2000:
             return num
     return None
+
+
+def _resolve_printed_pages(pdf_pages: list[int], candidates: list[Optional[int]]) -> list[Optional[int]]:
+    """
+    Turn noisy per-page candidates into consistent printed page numbers.
+
+    Printed page = pdf_page + offset, and the offset is constant over long runs
+    of pages. For each page, vote on the offset among neighbours (±4 pages). If
+    at least 2 neighbours agree, use pdf_page + winning offset (replacing stray
+    numbers picked up from tables/headers); otherwise return None.
+    """
+    from collections import Counter
+
+    n = len(pdf_pages)
+    out: list[Optional[int]] = []
+    for i in range(n):
+        votes: Counter[int] = Counter()
+        for k in range(max(0, i - 4), min(n, i + 5)):
+            c = candidates[k]
+            if c is not None:
+                votes[c - pdf_pages[k]] += 1
+        if votes:
+            offset, count = votes.most_common(1)[0]
+            if count >= 2 and 1 <= pdf_pages[i] + offset <= 2000:
+                out.append(pdf_pages[i] + offset)
+                continue
+        out.append(None)
+    return out
 
 
 # ── Core tagger ───────────────────────────────────────────────────────────────
@@ -255,13 +324,14 @@ def tag_pages(
       1. Image-only pages → section=other, skip.
       2. Strip boilerplate; build heading zone (12 cleaned lines).
       3. Match explicit heading patterns.
-      4. If no match and page has numeric data → try body fallback patterns.
+      4. If no match → strict body fallback (all statement markers + dense numbers).
       5. (contd.) pages inherit previous section/scope/unit.
       6. Numeric density ≥ _MIN_NUMERIC_TOKENS → content_type = table.
       7. Statement-section pages are always content_type = table.
-      8. Printed page detected from header/footer.
+      8. Printed page: per-page candidate, then offset-voting over neighbours.
     """
     results: list[TagResult] = []
+    printed_candidates: list[Optional[int]] = []
 
     prev_section: str = SECTION_OTHER
     prev_scope: str = "unknown"
@@ -272,21 +342,26 @@ def tag_pages(
 
         if pr.is_image_only:
             tag.is_image_only = True
+            printed_candidates.append(None)
             results.append(tag)
             continue
 
         text = pr.text
         heading = _heading_text(text)
-        is_contd = bool(_CONTD_RE.search(heading))
+        title_zone = heading + " " + " ".join(_title_lines(text))
+        is_contd = any(_CONTD_RE.search(l) for l in _title_lines(text) if len(l) <= _TITLE_MAX_CHARS)
 
-        if is_contd and prev_section != SECTION_OTHER:
+        # "(contd.)" inherits ONLY from the immediately preceding statement page and
+        # only if this page is numeric - "Accounting policies (contd.)" is not a statement.
+        prev_is_statement = bool(results) and results[-1].section in STATEMENT_SECTIONS
+        if is_contd and prev_is_statement and _numeric_density(text) >= _BODY_FALLBACK_MIN_NUMERIC:
             tag.section = prev_section
             tag.scope   = prev_scope
             tag.unit    = prev_unit
         else:
             detected = _detect_section(heading, text)
             tag.section = detected if detected else SECTION_OTHER
-            tag.scope   = _detect_scope(heading)
+            tag.scope   = _detect_scope(title_zone)
             tag.unit    = _detect_unit(text)
 
             # Propagate scope if not detected locally
@@ -302,7 +377,7 @@ def tag_pages(
         else:
             tag.content_type = "narrative"
 
-        tag.printed_page = _detect_printed_page(text)
+        printed_candidates.append(_detect_printed_page(text))
 
         # Carry forward
         if tag.section != SECTION_OTHER:
@@ -319,6 +394,10 @@ def tag_pages(
             pdf_name, pr.pdf_page, tag.section, tag.scope, tag.unit,
             tag.content_type, numeric_count, tag.printed_page,
         )
+
+    resolved = _resolve_printed_pages([r.pdf_page for r in results], printed_candidates)
+    for r, pp in zip(results, resolved):
+        r.printed_page = pp
 
     logger.info(
         "tag_pages: %s → %d pages, %d statement pages",

@@ -19,7 +19,7 @@ Routers
 
 Seed documents (Task 11)
 ------------------------
-On startup, ``seed_once()`` is called in a background thread.  It is
+When ``SEED_ON_STARTUP=true``, ``seed_once()`` is called at startup in a background thread (default: off).  It is
 idempotent – if all 4 seed documents are already ``ready`` it returns
 immediately.  The HTTP server is not blocked; requests are accepted while
 seeding runs in parallel.
@@ -67,9 +67,12 @@ def _run_seed_in_background() -> None:
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     """FastAPI lifespan hook – runs seed on first startup."""
-    logger.info("startup: launching seed_once() in background thread")
-    t = threading.Thread(target=_run_seed_in_background, daemon=True, name="seed-thread")
-    t.start()
+    if settings.seed_on_startup:
+        logger.info("startup: launching seed_once() in background thread")
+        t = threading.Thread(target=_run_seed_in_background, daemon=True, name="seed-thread")
+        t.start()
+    else:
+        logger.info("startup: SEED_ON_STARTUP=false - not seeding (run `python -m app.seed`)")
     yield
     # Shutdown: nothing to clean up (daemon thread exits with process)
     logger.info("shutdown: API server stopping")

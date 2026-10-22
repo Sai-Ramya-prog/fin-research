@@ -12,7 +12,6 @@ langchain>=0.2.0
 langchain-core>=0.2.0
 langchain-community>=0.2.0
 langchain-google-genai>=1.0.0  # Gemini embeddings
-langchain-openai>=0.1.0        # OpenAI embeddings (fallback)
 langchain-chroma>=0.1.0        # LangChain ↔ Chroma wrapper
 langgraph>=0.1.0
 

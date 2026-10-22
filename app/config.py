@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     storage_secret_access_key: str = ""
     storage_region: str = "us-east-1"
 
+    # ── Startup behaviour ─────────────────────────────────────────────────
+    # Seed the 4 reports automatically when the API starts. Keep False while
+    # developing (uvicorn --reload restarts would re-trigger it); run
+    # `python -m app.seed` manually instead.
+    seed_on_startup: bool = False
+
     # ── API / CORS ────────────────────────────────────────────────────────
     cors_origins: str = "http://localhost:5173,http://localhost:4173"
 

@@ -73,8 +73,10 @@ def ephemeral_collection():
     """Return an in-memory Chroma collection using EphemeralClient."""
     import chromadb
     client = chromadb.EphemeralClient()
+    # EphemeralClient state is shared across tests in one process, so give every
+    # test its own collection.
     collection = client.get_or_create_collection(
-        name="test-collection",
+        name=f"test-collection-{uuid.uuid4().hex[:8]}",
         metadata={"embedding_fingerprint": "fake:fake-model:16"},
     )
     return collection
@@ -251,8 +253,9 @@ class TestIndexChunks:
         status_values = [s[0] for s in statuses]
         assert "failed" in status_values
 
-    def test_large_batch_split_into_two_chroma_calls(self, ephemeral_collection):
-        """350 chunks must be sent in 2 Chroma add() calls: 300 + 50."""
+    def test_writes_to_chroma_after_every_embedding_batch(self, ephemeral_collection):
+        """Each embedded batch (<= EMBED_BATCH_SIZE) is written immediately, so a
+        later failure never loses vectors that were already paid for."""
         from app import index as idx
         doc_id = uuid.uuid4()
         chunks = _make_chunks(350, doc_id)
@@ -273,9 +276,79 @@ class TestIndexChunks:
         ):
             idx.index_chunks(doc_id, chunks)
 
-        assert len(add_calls) == 2, f"Expected 2 batches, got {len(add_calls)}: {add_calls}"
-        assert add_calls[0] == 300
-        assert add_calls[1] == 50
+        assert sum(add_calls) == 350
+        assert max(add_calls) <= idx.EMBED_BATCH_SIZE
+        assert ephemeral_collection.count() == 350
+
+    def test_rerun_embeds_nothing_when_already_indexed(self, ephemeral_collection):
+        from app import index as idx
+        doc_id = uuid.uuid4()
+        chunks = _make_chunks(40, doc_id)
+        _, fake_set = _make_status_tracker()
+        with (
+            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
+            patch.object(idx, "_set_document_status", side_effect=fake_set),
+            patch.object(idx, "get_embeddings") as ge,
+        ):
+            ge.return_value.embed_documents.side_effect = lambda t: [[0.1] * 16 for _ in t]
+            idx.index_chunks(doc_id, chunks)
+            first = ge.return_value.embed_documents.call_count
+            idx.index_chunks(doc_id, chunks)  # second run: nothing to embed
+            assert ge.return_value.embed_documents.call_count == first
+
+    def test_resume_embeds_only_missing_chunks(self, ephemeral_collection):
+        from app import index as idx
+        doc_id = uuid.uuid4()
+        chunks = _make_chunks(70, doc_id)
+        _, fake_set = _make_status_tracker()
+        embedded = []
+
+        def fake_embed(texts):
+            embedded.extend(texts)
+            return [[0.1] * 16 for _ in texts]
+
+        # Pre-store the first 32 chunks as if an earlier run got that far.
+        ephemeral_collection.add(
+            ids=[f"{doc_id}:{i}" for i in range(32)],
+            documents=[c["text"] for c in chunks[:32]],
+            metadatas=[{"doc_id": str(doc_id)}] * 32,
+            embeddings=[[0.1] * 16] * 32,
+        )
+        with (
+            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
+            patch.object(idx, "_set_document_status", side_effect=fake_set),
+            patch.object(idx, "get_embeddings") as ge,
+        ):
+            ge.return_value.embed_documents.side_effect = fake_embed
+            idx.index_chunks(doc_id, chunks)
+        assert len(embedded) == 38
+        assert ephemeral_collection.count() == 70
+
+    def test_daily_quota_marks_failed_and_keeps_progress(self, ephemeral_collection):
+        from app import index as idx
+        from app.embeddings import QuotaExhaustedError
+        doc_id = uuid.uuid4()
+        chunks = _make_chunks(100, doc_id)
+        statuses, fake_set = _make_status_tracker()
+        calls = {"n": 0}
+
+        def fake_embed(texts):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise QuotaExhaustedError("Gemini daily embedding quota exhausted.")
+            return [[0.1] * 16 for _ in texts]
+
+        with (
+            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
+            patch.object(idx, "_set_document_status", side_effect=fake_set),
+            patch.object(idx, "get_embeddings") as ge,
+        ):
+            ge.return_value.embed_documents.side_effect = fake_embed
+            with pytest.raises(QuotaExhaustedError):
+                idx.index_chunks(doc_id, chunks)
+        assert ephemeral_collection.count() == idx.EMBED_BATCH_SIZE  # first batch kept
+        assert statuses[-1][0] == "failed"
+        assert "quota exhausted" in statuses[-1][1]
 
 
 # ---------------------------------------------------------------------------

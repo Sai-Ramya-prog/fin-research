@@ -69,41 +69,39 @@ NARRATIVE_CHUNK_OVERLAP = 200
 # ---------------------------------------------------------------------------
 
 def _collapse_whitespace(text: str) -> str:
-    """Replace any run of whitespace (including newlines) with a single space.
-    This keeps the textual information while dramatically shrinking the size.
+    """Shrink whitespace but KEEP line breaks.
+
+    Row structure matters in financial tables ("Total assets  1,23,456  1,10,000"
+    must stay on one line), so only runs of spaces/tabs are shortened and blank
+    lines dropped. Newlines are never turned into spaces.
     """
-    return re.sub(r"\s+", " ", text).strip()
+    lines = []
+    for line in text.splitlines():
+        line = re.sub(r"[ \t\u00a0]{3,}", "  ", line.replace("\t", " ")).strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def _split_large_table(text: str) -> List[str]:
-    """Split a large table page into ≤``MAX_CHUNK_BYTES`` pieces.
-    The algorithm:
-    1. Collapse whitespace to a single space (makes the size estimate more
-       accurate).
-    2. If the collapsed text still fits, return it as a single chunk.
-    3. Otherwise split on line breaks, accumulating lines until the next line
-       would exceed the byte limit, then start a new chunk.
-    """
+    """Split a large table page into pieces of at most ``MAX_CHUNK_BYTES`` bytes,
+    always on line boundaries so a row is never cut in half."""
     collapsed = _collapse_whitespace(text)
     if len(collapsed.encode("utf-8")) <= MAX_CHUNK_BYTES:
         return [collapsed]
-    # Fallback – split on original line boundaries to keep a logical table
-    # structure visible.  Preserve the original line ordering.
     chunks: List[str] = []
     current: List[str] = []
     current_len = 0
-    for line in text.splitlines():
-        # Use the collapsed representation for length measurement.
-        line_collapsed = _collapse_whitespace(line)
-        line_bytes = len(line_collapsed.encode("utf-8")) + 1  # +1 for a space
+    for line in collapsed.split("\n"):
+        line_bytes = len(line.encode("utf-8")) + 1  # +1 for the newline
         if current_len + line_bytes > MAX_CHUNK_BYTES and current:
-            chunks.append(" ".join(current))
+            chunks.append("\n".join(current))
             current = []
             current_len = 0
-        current.append(line_collapsed)
+        current.append(line)
         current_len += line_bytes
     if current:
-        chunks.append(" ".join(current))
+        chunks.append("\n".join(current))
     return chunks
 
 
