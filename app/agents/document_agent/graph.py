@@ -121,7 +121,7 @@ def _node_tag(state: DocumentState) -> DocumentState:
 
     doc_id = state["doc_id"]
     pages = state["pages"]
-    pdf_name = Path(state["pdf_path"]).name
+    pdf_name = state.get("filename") or Path(state["pdf_path"]).name
     t0 = time.perf_counter()
 
     logger.info("[tag] doc=%s  pages=%d  start", doc_id, len(pages))
@@ -161,7 +161,9 @@ def _node_chunk(state: DocumentState) -> DocumentState:
     pages = state["pages"]
     tags = state["tags"]
     pdf_path = state["pdf_path"]
-    pdf_name = Path(pdf_path).name
+    # Use the real file name (not the temp download name) so chunk metadata and
+    # citations show e.g. "infosys_fy2025.pdf".
+    pdf_name = state.get("filename") or Path(pdf_path).name
     t0 = time.perf_counter()
 
     logger.info("[chunk] doc=%s  pages=%d  start", doc_id, len(pages))
@@ -359,6 +361,7 @@ def run_document_agent(doc_id: uuid.UUID) -> None:
         initial_state: DocumentState = {
             "doc_id": doc.id,
             "pdf_path": pdf_path,
+            "filename": doc.filename,
             "company": doc.company or "",
             "fiscal_year": str(doc.fiscal_year or ""),
             "session_id": doc.session_id,

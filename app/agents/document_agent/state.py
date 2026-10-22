@@ -35,6 +35,9 @@ class DocumentState(TypedDict, total=False):
     pdf_path: str
     """Absolute local path to the downloaded PDF temp file."""
 
+    filename: str
+    """Original PDF file name (used as pdf_name in chunk metadata)."""
+
     company: str
     """Company name – copied from Document.company."""
 
