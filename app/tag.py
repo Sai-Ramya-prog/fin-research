@@ -105,8 +105,8 @@ _HEADING_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.I,
     ), SECTION_BALANCE_SHEET),
     (re.compile(
-        r"(statement\s+of\s+)?(profit\s+(and|&)\s+loss|income\s+(and\s+expenditure|statement)|"
-        r"statement\s+of\s+(operations|comprehensive\s+income))",
+        r"(statements?\s+of\s+)?(profit\s+(and|&)\s+loss|income\s+(and\s+expenditure|statement)|"
+        r"statements?\s+of\s+(operations|comprehensive\s+income))",
         re.I,
     ), SECTION_PROFIT_LOSS),
     (re.compile(r"(statement\s+of\s+)?cash\s+flow", re.I), SECTION_CASH_FLOW),
