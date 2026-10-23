@@ -9,7 +9,7 @@ export function MetricsPage() {
   return (
     <div className="page">
       <PageHead
-        title="Key metrics"
+        title="Key" accent="metrics" eyebrow="Extraction"
         blurb="Numbers read from the financial statements, each with the page it came from."
       >
         <div className="seg" role="group" aria-label="Company">
@@ -29,7 +29,7 @@ export function MetricsPage() {
                 <span className="value">{k.value}</span>
                 <span className="unit">{k.unit}</span>
               </div>
-              <Sparkline data={k.series} color={good ? '#0e7c7b' : '#a61e3d'} />
+              <Sparkline data={k.series} color={good ? 'var(--teal)' : 'var(--oxblood)'} />
               <div className="foot">
                 <span className={`delta ${good ? 'good' : 'bad'}`}>
                   {k.delta >= 0 ? '▲' : '▼'} {Math.abs(k.delta).toFixed(1)}% YoY

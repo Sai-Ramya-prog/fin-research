@@ -54,54 +54,27 @@ export function DocumentRow({ initialDoc, onDelete }: Props) {
 
   return (
     <tr>
-      <td style={td}>{doc.filename}</td>
-      <td style={td}>{doc.company}</td>
-      <td style={td}>{doc.fiscal_year}</td>
-      <td style={td}>{doc.page_count ?? '—'}</td>
-      <td style={td}>
+      <td className="strong">{doc.filename}</td>
+      <td>{doc.company}</td>
+      <td className="mono">{doc.fiscal_year}</td>
+      <td className="mono">{doc.page_count ?? '—'}</td>
+      <td>
         <StatusBadge status={doc.status} errorMessage={doc.error_message} />
       </td>
-      <td style={{ ...td, textAlign: 'right' }}>
+      <td className="r">
         {confirmDelete ? (
-          <span style={{ display: 'inline-flex', gap: '6px' }}>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              style={{ ...btnBase, background: '#b91c1c', color: '#fff' }}
-            >
+          <span className="row-actions">
+            <button className="btn danger solid sm" onClick={handleDelete} disabled={deleting}>
               {deleting ? 'Deleting…' : 'Confirm'}
             </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              disabled={deleting}
-              style={btnBase}
-            >
+            <button className="btn outline sm" onClick={() => setConfirmDelete(false)} disabled={deleting}>
               Cancel
             </button>
           </span>
         ) : (
-          <button onClick={handleDelete} style={{ ...btnBase, color: '#b91c1c' }}>
-            Delete
-          </button>
+          <button className="btn outline danger sm" onClick={handleDelete}>Delete</button>
         )}
       </td>
     </tr>
   )
-}
-
-const td: React.CSSProperties = {
-  padding: '10px 12px',
-  borderBottom: '1px solid #e5e7eb',
-  fontSize: '0.875rem',
-  color: '#374151',
-  verticalAlign: 'middle',
-}
-
-const btnBase: React.CSSProperties = {
-  padding: '4px 12px',
-  border: '1px solid #d1d5db',
-  borderRadius: '6px',
-  background: '#fff',
-  cursor: 'pointer',
-  fontSize: '0.8rem',
 }

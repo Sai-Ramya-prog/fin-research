@@ -1,6 +1,6 @@
 /**
  * src/pages/SessionsPage.tsx
- * Lists all sessions, lets the user create and delete sessions.
+ * Sessions as a table inside a card, with a create row.
  */
 
 import { useEffect, useState } from 'react'
@@ -24,8 +24,7 @@ export function SessionsPage() {
 
   async function load() {
     try {
-      const data = await listSessions()
-      setSessions(data)
+      setSessions(await listSessions())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load sessions')
     } finally {
@@ -42,7 +41,7 @@ export function SessionsPage() {
     setCreating(true)
     try {
       const sess = await createSession(newName.trim())
-      setSessions(prev => [...prev, { ...sess, document_count: 0 }])
+      setSessions(prev => [{ ...sess, document_count: 0 }, ...prev])
       setNewName('')
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : 'Failed to create session')
@@ -65,112 +64,83 @@ export function SessionsPage() {
     }
   }
 
-  if (loading) return <p style={styles.msg}>Loading sessions…</p>
-  if (error)   return <p style={{ ...styles.msg, color: '#b91c1c' }}>{error}</p>
-
   return (
-    <div style={styles.page}>
-      <h1 style={styles.h1}>Sessions</h1>
+    <div className="page">
+      <div className="head">
+        <div>
+          <div className="eyebrow">Workspaces</div>
+          <h1>Your <em>sessions</em></h1>
+          <p>One session per research question. Add annual reports to a session and the agent reads, tags and indexes them.</p>
+        </div>
+      </div>
 
-      {/* Create form */}
-      <form onSubmit={handleCreate} style={styles.createRow}>
-        <input
-          type="text"
-          value={newName}
-          onChange={e => setNewName(e.target.value)}
-          placeholder="New session name…"
-          disabled={creating}
-          style={styles.textInput}
-        />
-        <button type="submit" disabled={creating || !newName.trim()} style={styles.btn}>
-          {creating ? 'Creating…' : 'Create session'}
-        </button>
-        {createError && <span style={{ color: '#b91c1c', fontSize: '0.85rem' }}>{createError}</span>}
-      </form>
+      <div className="card flush">
+        <div className="card-bar">
+          <h2>All sessions</h2>
+          <span className="count">{sessions.length} total</span>
+        </div>
 
-      {sessions.length === 0 ? (
-        <p style={styles.empty}>No sessions yet — create one above.</p>
-      ) : (
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={th}>Name</th>
-              <th style={th}>Documents</th>
-              <th style={th}>Created</th>
-              <th style={th} />
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map(s => (
-              <tr key={s.id}>
-                <td style={td}>
-                  <Link to={`/sessions/${s.id}`} style={styles.link}>{s.name}</Link>
-                </td>
-                <td style={td}>{s.document_count}</td>
-                <td style={td}>{new Date(s.created_at).toLocaleDateString()}</td>
-                <td style={{ ...td, textAlign: 'right' }}>
-                  {confirmId === s.id ? (
-                    <span style={{ display: 'inline-flex', gap: '6px' }}>
-                      <button
-                        onClick={() => handleDelete(s.id)}
-                        disabled={deletingId === s.id}
-                        style={{ ...btnSm, background: '#b91c1c', color: '#fff', border: 'none' }}
-                      >
-                        {deletingId === s.id ? 'Deleting…' : 'Confirm delete'}
-                      </button>
-                      <button onClick={() => setConfirmId(null)} style={btnSm}>Cancel</button>
-                    </span>
-                  ) : (
-                    <button onClick={() => handleDelete(s.id)} style={{ ...btnSm, color: '#b91c1c' }}>
-                      Delete
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+        <form onSubmit={handleCreate} className="new-row">
+          <input
+            type="text"
+            className="field"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            placeholder="New session name, e.g. Auto sector FY25"
+            disabled={creating}
+            aria-label="New session name"
+          />
+          <button type="submit" className="btn primary" disabled={creating || !newName.trim()}>
+            {creating ? 'Creating…' : '+ Create session'}
+          </button>
+        </form>
+        {createError && <p className="errtext" style={{ paddingTop: 10 }}>{createError}</p>}
+
+        {loading ? (
+          <div className="empty">Loading sessions…</div>
+        ) : error ? (
+          <div className="empty" style={{ color: 'var(--oxblood)' }}>{error}</div>
+        ) : sessions.length === 0 ? (
+          <div className="empty"><b>No sessions yet</b>Name one above to get started.</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="grid">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Documents</th>
+                  <th>Created</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map(s => (
+                  <tr key={s.id}>
+                    <td><Link to={`/sessions/${s.id}`} className="strong">{s.name}</Link></td>
+                    <td className="mono">{s.document_count ?? 0}</td>
+                    <td className="mono">{new Date(s.created_at).toLocaleDateString()}</td>
+                    <td className="r">
+                      {confirmId === s.id ? (
+                        <span className="row-actions">
+                          <button className="btn danger solid sm" onClick={() => handleDelete(s.id)} disabled={deletingId === s.id}>
+                            {deletingId === s.id ? 'Deleting…' : 'Confirm delete'}
+                          </button>
+                          <button className="btn outline sm" onClick={() => setConfirmId(null)}>Cancel</button>
+                        </span>
+                      ) : (
+                        <span className="row-actions">
+                          <Link to={`/sessions/${s.id}`} className="btn outline sm">Open</Link>
+                          <button className="btn outline danger sm" onClick={() => handleDelete(s.id)}>Delete</button>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { maxWidth: '760px', margin: '0 auto', padding: '32px 20px' },
-  h1: { margin: '0 0 24px', fontSize: '1.6rem', fontWeight: 700, color: '#111827' },
-  createRow: { display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap' },
-  textInput: { flex: 1, minWidth: '200px', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' },
-  btn: { padding: '8px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' },
-  table: { width: '100%', borderCollapse: 'collapse' },
-  empty: { color: '#6b7280', fontSize: '0.95rem' },
-  msg: { textAlign: 'center', marginTop: '60px', color: '#6b7280' },
-  link: { color: '#2563eb', textDecoration: 'none', fontWeight: 500 },
-}
-
-const th: React.CSSProperties = {
-  padding: '10px 12px',
-  background: '#f3f4f6',
-  borderBottom: '2px solid #e5e7eb',
-  textAlign: 'left',
-  fontSize: '0.8rem',
-  fontWeight: 700,
-  color: '#6b7280',
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-}
-
-const td: React.CSSProperties = {
-  padding: '10px 12px',
-  borderBottom: '1px solid #e5e7eb',
-  fontSize: '0.9rem',
-  color: '#374151',
-}
-
-const btnSm: React.CSSProperties = {
-  padding: '4px 12px',
-  border: '1px solid #d1d5db',
-  borderRadius: '6px',
-  background: '#fff',
-  cursor: 'pointer',
-  fontSize: '0.8rem',
 }

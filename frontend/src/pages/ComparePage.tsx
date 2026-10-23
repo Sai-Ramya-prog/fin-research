@@ -16,7 +16,7 @@ export function ComparePage() {
   return (
     <div className="page">
       <PageHead
-        title="Compare companies"
+        title="Compare" accent="companies" eyebrow="Comparison"
         blurb="The same metric for every company, side by side. The strongest value is highlighted."
       >
         <div className="seg" role="group" aria-label="Metric">
@@ -53,7 +53,7 @@ export function ComparePage() {
                 const w = best(m.values, m.higherIsBetter)
                 return (
                   <tr key={m.key}>
-                    <td>{m.label} <span style={{ color: '#667085', fontWeight: 400 }}>({m.unit})</span></td>
+                    <td>{m.label} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>({m.unit})</span></td>
                     {COMPANIES.map(c => <td key={c} className={c === w ? 'win' : ''}>{m.values[c]}</td>)}
                   </tr>
                 )

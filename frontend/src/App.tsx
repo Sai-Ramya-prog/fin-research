@@ -11,6 +11,7 @@ import { MetricsPage } from './pages/MetricsPage'
 import { ComparePage } from './pages/ComparePage'
 import { RedFlagsPage } from './pages/RedFlagsPage'
 import { AskPage } from './pages/AskPage'
+import { ThemeToggle } from './components/ThemeToggle'
 
 const NAV = [
   { to: '/', label: 'Sessions', hint: 'Your workspaces', live: true, end: true },
@@ -42,6 +43,7 @@ export function App() {
           <div className="rail-foot">Milestone 1: documents are read, tagged and indexed. The other screens preview what comes next.</div>
         </aside>
         <main className="content">
+          <div className="topbar"><ThemeToggle /></div>
           <Routes>
             <Route path="/" element={<SessionsPage />} />
             <Route path="/sessions/:id" element={<SessionDetailPage />} />

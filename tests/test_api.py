@@ -209,6 +209,7 @@ class TestSessionsCRUD:
         r = client.get("/sessions")
         assert r.status_code == 200
         assert len(r.json()) == 2
+        assert all(item["document_count"] == 0 for item in r.json())
 
     def test_get_session_detail(self, client):
         s = _create_session(client)

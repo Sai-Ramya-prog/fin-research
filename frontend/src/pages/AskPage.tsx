@@ -8,7 +8,7 @@ export function AskPage() {
   return (
     <div className="page">
       <PageHead
-        title="Ask and report"
+        title="Ask and" accent="report" eyebrow="Q&A"
         blurb="Ask why or how, get an answer that cites its pages, then turn the findings into a report."
       />
       <div className="split">

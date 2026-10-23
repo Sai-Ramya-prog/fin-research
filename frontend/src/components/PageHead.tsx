@@ -1,10 +1,11 @@
-interface Props { title: string; blurb: string; sample?: boolean; children?: React.ReactNode }
+interface Props { title: string; accent?: string; eyebrow?: string; blurb: string; sample?: boolean; children?: React.ReactNode }
 
-export function PageHead({ title, blurb, sample = true, children }: Props) {
+export function PageHead({ title, accent, eyebrow, blurb, sample = true, children }: Props) {
   return (
     <div className="head">
       <div>
-        <h1>{title}</h1>
+        {eyebrow && <div className="eyebrow">{eyebrow}</div>}
+        <h1>{title}{accent && <> <em>{accent}</em></>}</h1>
         <p>{blurb}</p>
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>

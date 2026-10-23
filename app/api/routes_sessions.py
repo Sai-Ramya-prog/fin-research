@@ -32,6 +32,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
 from app import storage
@@ -74,6 +75,7 @@ class SessionOut(BaseModel):
     id: uuid.UUID
     name: str
     created_at: datetime
+    document_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -144,7 +146,17 @@ def create_session(
 def list_sessions(db: DBSession = Depends(_db)) -> List[SessionOut]:
     """Return all sessions ordered by creation time descending."""
     sessions = db.query(Session).order_by(Session.created_at.desc()).all()
-    return [SessionOut.model_validate(s) for s in sessions]
+    counts = dict(
+        db.query(Document.session_id, func.count(Document.id))
+        .group_by(Document.session_id)
+        .all()
+    )
+    out: List[SessionOut] = []
+    for s in sessions:
+        item = SessionOut.model_validate(s)
+        item.document_count = int(counts.get(s.id, 0))
+        out.append(item)
+    return out
 
 
 @router.get(

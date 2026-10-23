@@ -4,7 +4,7 @@ import { PageHead } from '../components/PageHead'
 import { FLAGS, type Severity } from '../data/sample'
 
 const LEVELS: Severity[] = ['High', 'Medium', 'Low']
-const COLOUR: Record<Severity, string> = { High: '#a61e3d', Medium: '#b7791f', Low: '#5b7aa3' }
+const COLOUR: Record<Severity, string> = { High: 'var(--oxblood)', Medium: 'var(--brass)', Low: 'var(--info)' }
 
 export function RedFlagsPage() {
   const [level, setLevel] = useState<Severity | 'All'>('All')
@@ -14,7 +14,7 @@ export function RedFlagsPage() {
   return (
     <div className="page">
       <PageHead
-        title="Red flags"
+        title="Red" accent="flags" eyebrow="Risk"
         blurb="Warning signs found in the reports, each with the sentence and page that triggered it."
       >
         <div className="seg" role="group" aria-label="Severity">
