@@ -92,6 +92,7 @@ def _patch_page_store():
     """Page-text storage + indexed flags hit the DB; mock them in every test."""
     with (
         patch("app.agents.document_agent.graph.save_pages"),
+        patch("app.agents.document_agent.graph.save_layout_text"),
         patch("app.agents.document_agent.graph.mark_indexed"),
     ):
         yield

@@ -56,7 +56,7 @@ import time
 import uuid
 from pathlib import Path
 
-from app.agents.document_agent.graph import run_document_agent
+from app.agents.orchestrator import run_pipeline
 from app.config import settings
 from app import storage
 from app.db.engine import SessionLocal
@@ -314,7 +314,7 @@ def seed_once(reprocess: bool = False) -> None:
         logger.info("seed: running Document Agent for doc=%s", doc_id)
         t_agent = time.perf_counter()
         try:
-            run_document_agent(doc_id)
+            run_pipeline(doc_id)
         except Exception as exc:
             logger.exception(
                 "seed: unhandled exception in Document Agent for doc=%s: %s",

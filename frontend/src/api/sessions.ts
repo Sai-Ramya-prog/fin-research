@@ -24,8 +24,12 @@ export interface Document {
   page_count: number | null
   status: DocumentStatus
   error_message: string | null
+  extraction_status?: AgentStatus | null
+  red_flag_status?: AgentStatus | null
   created_at: string
 }
+
+export type AgentStatus = 'queued' | 'running' | 'done' | 'failed' | 'skipped'
 
 export interface Session {
   id: string

@@ -6,7 +6,7 @@ Unit tests for app/seed.py (Task 11).
 All external I/O is mocked:
   - DB → in-memory SQLite (same pattern as test_api.py)
   - storage.save / storage.exists / storage.exists → mocked
-  - run_document_agent → mocked (no real pipeline)
+  - run_pipeline → mocked (no real pipeline)
 
 Run with:
     pytest tests/test_seed.py -v
@@ -210,7 +210,7 @@ class TestSeedOnce:
             patch("app.seed.storage.exists", return_value=False),
             patch("app.seed.storage.save", return_value="key"),
             patch("app.seed.storage.make_storage_key", side_effect=lambda d, f: f"documents/{d}/{f}"),
-            patch("app.seed.run_document_agent", return_value=None),
+            patch("app.seed.run_pipeline", return_value=None),
             patch("app.seed.time.sleep", return_value=None),
         ]
         return patches
@@ -224,7 +224,7 @@ class TestSeedOnce:
             patch("app.seed.storage.exists", return_value=False),
             patch("app.seed.storage.save", return_value="key"),
             patch("app.seed.storage.make_storage_key", side_effect=lambda d, f: f"docs/{d}/{f}"),
-            patch("app.seed.run_document_agent") as mock_agent,
+            patch("app.seed.run_pipeline") as mock_agent,
             patch("app.seed.time.sleep"),
         ):
             seed_once()
@@ -267,7 +267,7 @@ class TestSeedOnce:
             patch("app.seed.storage.exists", return_value=False),
             patch("app.seed.storage.save", return_value="key"),
             patch("app.seed.storage.make_storage_key", side_effect=lambda d, f: f"docs/{d}/{f}"),
-            patch("app.seed.run_document_agent") as mock_agent,
+            patch("app.seed.run_pipeline") as mock_agent,
             patch("app.seed.time.sleep"),
         ):
             seed_once()
@@ -285,7 +285,7 @@ class TestSeedOnce:
             patch("app.seed.storage.exists", return_value=True),   # already uploaded
             patch("app.seed.storage.save", mock_save),
             patch("app.seed.storage.make_storage_key", side_effect=lambda d, f: f"docs/{d}/{f}"),
-            patch("app.seed.run_document_agent"),
+            patch("app.seed.run_pipeline"),
             patch("app.seed.time.sleep"),
         ):
             seed_once()
@@ -310,7 +310,7 @@ class TestSeedOnce:
             patch("app.seed.storage.exists", return_value=False),
             patch("app.seed.storage.save", return_value="key"),
             patch("app.seed.storage.make_storage_key", side_effect=lambda d, f: f"docs/{d}/{f}"),
-            patch("app.seed.run_document_agent", side_effect=_agent_that_fails_once),
+            patch("app.seed.run_pipeline", side_effect=_agent_that_fails_once),
             patch("app.seed.time.sleep"),
         ):
             seed_once()  # must not raise
@@ -341,7 +341,7 @@ class TestSeedOnce:
         mock_agent = MagicMock()
         with (
             patch("app.seed.SessionLocal", _mock_session_local(db_session)),
-            patch("app.seed.run_document_agent", mock_agent),
+            patch("app.seed.run_pipeline", mock_agent),
             patch("app.seed.time.sleep"),
         ):
             seed_once()

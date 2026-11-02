@@ -81,6 +81,7 @@ export function SessionDetailPage() {
                   <th>FY</th>
                   <th>Pages</th>
                   <th>Status</th>
+                  <th>Analysis</th>
                   <th />
                 </tr>
               </thead>

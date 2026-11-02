@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 32
     embedding_batch_pause_seconds: float = 2.0
 
+    # ── Chat model for the Extraction Agent (reads numbers off statement pages)
+    llm_model: str = "gemini-2.5-flash"
+    llm_max_retries: int = 4
+    # Run Extraction + Red Flag agents automatically after the Document Agent.
+    run_agents: bool = True
+
     # tiered = embed only tier-1 pages (statements, auditor, MD&A, notes) on
     # upload; the rest is embedded on demand. full = embed every page.
     index_mode: Literal["tiered", "full"] = "tiered"

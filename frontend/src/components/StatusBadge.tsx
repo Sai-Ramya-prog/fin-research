@@ -29,3 +29,13 @@ export function StatusBadge({ status, errorMessage }: Props) {
     </span>
   )
 }
+
+const AGENT_KIND: Record<string, string> = {
+  queued: 'new', running: 'busy', done: 'ok', failed: 'bad', skipped: '',
+}
+
+/** Small badge for the Extraction / Red Flag agent stages. */
+export function AgentBadge({ label, status }: { label: string; status?: string | null }) {
+  if (!status) return <span className="mono" style={{ color: 'var(--muted)' }}>—</span>
+  return <span className={`badge ${AGENT_KIND[status] ?? ''}`} title={`${label}: ${status}`}>{label}</span>
+}

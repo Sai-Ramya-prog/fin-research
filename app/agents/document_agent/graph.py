@@ -45,7 +45,7 @@ from app.db.engine import session_scope
 from app.db.models import Document
 from app.config import settings
 from app.index import index_chunks
-from app.pages import mark_indexed, save_pages
+from app.pages import mark_indexed, save_layout_text, save_pages
 from app.parse import parse_fast, parse_layout
 from app.storage import download_to_temp
 from app.tag import STATEMENT_SECTIONS, tag_pages
@@ -179,6 +179,9 @@ def _node_chunk(state: DocumentState) -> DocumentState:
         ]
         if statement_page_nums:
             layout_text_map: dict[int, str] = parse_layout(pdf_path, statement_page_nums)
+            # Keep the clean layout text in the page store too: the Extraction
+            # Agent reads statements from there (no Chroma, no extra embedding).
+            save_layout_text(doc_id, layout_text_map)
             # Replace the text on matching PageResult objects with the
             # layout-preserved version (preserves column alignment in tables).
             import dataclasses

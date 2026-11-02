@@ -9,7 +9,7 @@ the full request-response cycle without running a real server.
 All external I/O is mocked:
   - DB calls via a fresh in-memory SQLite engine (override ``get_session``).
   - ``storage.save``, ``storage.delete``, ``storage.exists`` mocked.
-  - ``run_document_agent`` mocked to avoid real pipeline runs.
+  - ``run_pipeline`` mocked to avoid real pipeline runs.
   - ``ping_chroma`` and ``check_connection`` mocked for ``/health``.
 
 Run with:
@@ -96,7 +96,7 @@ def client(db_session):
     FastAPI TestClient with:
       - DB overridden to in-memory SQLite.
       - storage.save / storage.delete mocked (no real S3).
-      - run_document_agent mocked (no real pipeline).
+      - run_pipeline mocked (no real pipeline).
       - ping_chroma and check_connection mocked.
     """
     from app.api.main import app
@@ -114,7 +114,7 @@ def client(db_session):
     with (
         patch("app.api.routes_sessions.storage.save", return_value=None),
         patch("app.api.routes_documents.storage.delete", return_value=None),
-        patch("app.api.routes_sessions.run_document_agent", return_value=None),
+        patch("app.api.routes_sessions.run_pipeline", return_value=None),
         patch("app.api.routes_documents._delete_chroma_chunks", return_value=None),
         patch("app.api.main.ping_chroma", return_value=True),
         patch("app.api.main.check_connection", return_value=True),
@@ -292,10 +292,10 @@ class TestDocumentUpload:
         assert d["fiscal_year"] == 2024
 
     def test_background_agent_scheduled(self, client):
-        """run_document_agent must be called after upload."""
+        """run_pipeline must be called after upload."""
         s = _create_session(client)
         with patch(
-            "app.api.routes_sessions.run_document_agent"
+            "app.api.routes_sessions.run_pipeline"
         ) as mock_agent:
             _upload_doc(client, s["id"])
         # Background tasks in TestClient run synchronously

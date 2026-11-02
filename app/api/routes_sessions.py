@@ -36,7 +36,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
 from app import storage
-from app.agents.document_agent.graph import run_document_agent
+from app.agents.orchestrator import run_pipeline
 from app.db.engine import get_session
 from app.db.models import Document, Session
 
@@ -66,6 +66,8 @@ class DocumentOut(BaseModel):
     status: str
     page_count: Optional[int]
     error_message: Optional[str]
+    extraction_status: Optional[str] = None
+    red_flag_status: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -284,6 +286,6 @@ async def upload_document(
     )
 
     # 6. Background processing – Document Agent pipeline
-    background_tasks.add_task(run_document_agent, doc_id)
+    background_tasks.add_task(run_pipeline, doc_id)
 
     return DocumentOut.model_validate(doc)

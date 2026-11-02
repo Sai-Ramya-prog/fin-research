@@ -114,3 +114,61 @@ def score_pages(query: str, rows: Sequence[dict[str, Any]], limit: int = 5) -> l
 def find_pages(document_id: uuid.UUID, query: str, limit: int = 5) -> list[dict[str, Any]]:
     """Likely not-yet-embedded pages for *query* (keyword search over stored text)."""
     return score_pages(query, load_unindexed_pages(document_id), limit=limit)
+
+
+def save_layout_text(document_id: uuid.UUID, texts: dict[int, str]) -> None:
+    """Replace the stored text of statement pages with the layout-preserved
+    version (columns kept), so the Extraction Agent reads clean tables."""
+    if not texts:
+        return
+    with session_scope() as db:
+        rows = (
+            db.query(PageTag)
+            .filter(PageTag.document_id == document_id, PageTag.pdf_page.in_(list(texts)))
+            .all()
+        )
+        for row in rows:
+            if texts.get(row.pdf_page):
+                row.text = texts[row.pdf_page]
+
+
+def load_pages(
+    document_id: uuid.UUID,
+    sections: Iterable[str],
+    max_per_section: int = 4,
+    prefer_consolidated: bool = True,
+) -> list[dict[str, Any]]:
+    """Stored pages for the given sections, in page order.
+
+    For each section, consolidated pages win over standalone ones, and at most
+    ``max_per_section`` pages are returned (statements can spill onto a
+    second page).
+    """
+    wanted = list(sections)
+    with session_scope() as db:
+        rows = (
+            db.query(PageTag)
+            .filter(
+                PageTag.document_id == document_id,
+                PageTag.section.in_(wanted),
+                PageTag.is_image_only.is_(False),
+            )
+            .order_by(PageTag.pdf_page)
+            .all()
+        )
+        out: list[dict[str, Any]] = []
+        for section in wanted:
+            sec_rows = [r for r in rows if r.section == section]
+            cons = [r for r in sec_rows if r.scope == "consolidated"]
+            chosen = ((cons if prefer_consolidated and cons else sec_rows))[:max_per_section]
+            for r in chosen:
+                out.append(
+                    {
+                        "pdf_page": r.pdf_page,
+                        "section": r.section,
+                        "scope": r.scope,
+                        "unit": r.unit,
+                        "text": r.text or "",
+                    }
+                )
+        return sorted(out, key=lambda d: d["pdf_page"])

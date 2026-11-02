@@ -32,6 +32,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import (
+    BackgroundTasks,
     APIRouter,
     Depends,
     HTTPException,
@@ -41,7 +42,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
 from app.db.engine import get_session
-from app.db.models import Document
+from app.db.models import Document, Metric, RedFlag
 from app import storage
 from app.index import _get_collection  # for Chroma chunk deletion
 
@@ -59,6 +60,34 @@ class DocumentStatusOut(BaseModel):
     status: str
     page_count: Optional[int]
     error_message: Optional[str]
+    extraction_status: Optional[str] = None
+    red_flag_status: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class MetricOut(BaseModel):
+    name: str
+    year: Optional[int]
+    value: Optional[float]
+    unit: Optional[str]
+    kind: str
+    status: str
+    source_page: Optional[int]
+    source_text: Optional[str]
+    formula: Optional[str]
+    note: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
+class RedFlagOut(BaseModel):
+    type: str
+    severity: str
+    title: Optional[str]
+    description: str
+    evidence: Optional[str]
+    source_page: Optional[int]
 
     model_config = {"from_attributes": True}
 
@@ -198,3 +227,63 @@ def index_more_pages(
     except QuotaExhaustedError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
     return IndexMoreOut(embedded_pages=pages)
+
+
+_SEVERITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
+
+
+@router.get(
+    "/{document_id}/metrics",
+    response_model=list[MetricOut],
+    summary="Metrics and ratios extracted from the document",
+)
+def get_metrics(document_id: uuid.UUID, db: DBSession = Depends(_db)) -> list[Metric]:
+    """Every extracted number (with its page and source line) and every ratio
+    computed from them. ``status`` is ``needs_review`` when a check failed."""
+    if db.get(Document, document_id) is None:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    return (
+        db.query(Metric)
+        .filter(Metric.document_id == document_id)
+        .order_by(Metric.kind, Metric.name, Metric.year.desc())
+        .all()
+    )
+
+
+@router.get(
+    "/{document_id}/red-flags",
+    response_model=list[RedFlagOut],
+    summary="Red flags found in the document",
+)
+def get_red_flags(document_id: uuid.UUID, db: DBSession = Depends(_db)) -> list[RedFlag]:
+    if db.get(Document, document_id) is None:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    flags = db.query(RedFlag).filter(RedFlag.document_id == document_id).all()
+    return sorted(flags, key=lambda f: _SEVERITY_ORDER.get(f.severity, 3))
+
+
+@router.post(
+    "/{document_id}/analyze",
+    response_model=DocumentStatusOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Re-run the Extraction and Red Flag agents",
+)
+def analyze_document(
+    document_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: DBSession = Depends(_db),
+) -> Document:
+    """Use after a failure (for example Gemini quota) or after changing a rule.
+    The document must already be ``ready``."""
+    from app.agents.orchestrator import run_analysis
+
+    doc = db.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    if doc.status != "ready":
+        raise HTTPException(status_code=409, detail="Document is not ready yet")
+    doc.extraction_status = "queued"
+    doc.red_flag_status = "queued"
+    db.commit()
+    background_tasks.add_task(run_analysis, document_id)
+    return doc

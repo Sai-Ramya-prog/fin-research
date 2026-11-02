@@ -109,6 +109,11 @@ class Document(Base):
     )
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Milestone 2 agents. Values: queued | running | done | failed | skipped
+    # (None for documents processed before Milestone 2).
+    extraction_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    red_flag_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    analysis_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_now
     )
@@ -180,8 +185,12 @@ class PageTag(Base):
 
 class Metric(Base):
     """
-    Placeholder for financial metrics extracted by later milestones.
-    No extraction logic yet – table exists so migrations are versioned from day 1.
+    One financial number for one period, written by the Extraction Agent.
+
+    kind = "extracted"  read from a statement page (source_page + source_text)
+    kind = "ratio"      computed in code from other metrics (formula says how)
+    status = "verified" passed the source and consistency checks
+    status = "needs_review" failed a check; ``note`` says which one
     """
 
     __tablename__ = "metrics"
@@ -201,6 +210,15 @@ class Metric(Base):
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     scope: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="extracted", server_default="extracted"
+    )
+    source_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    formula: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="verified", server_default="verified"
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # relationships
     document: Mapped[Document] = relationship("Document", back_populates="metrics")
@@ -213,8 +231,9 @@ class Metric(Base):
 
 class RedFlag(Base):
     """
-    Placeholder for red-flag findings.
-    No detection logic yet – table exists so migrations are versioned from day 1.
+    One warning found by the Red Flag Agent. ``type`` is the rule id
+    (e.g. "falling_margin"); ``evidence`` is the numbers or the quoted sentence
+    that triggered it, and ``source_page`` is where it came from.
     """
 
     __tablename__ = "red_flags"
@@ -231,6 +250,11 @@ class RedFlag(Base):
     type: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    severity: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="Medium", server_default="Medium"
+    )
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # relationships
     document: Mapped[Document] = relationship("Document", back_populates="red_flags")
