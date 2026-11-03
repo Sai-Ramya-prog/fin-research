@@ -4,7 +4,8 @@ Check what the Extraction and Red Flag agents produced.
     python -m app.validate_agents                      # every document
     python -m app.validate_agents --doc <uuid>
     python -m app.validate_agents --doc <uuid> --golden tests/golden/apple_fy2025.json
-    python -m app.validate_agents --run                # (re)run the agents first
+    python -m app.validate_agents --run                # (re)run the agents on ALL documents
+    python -m app.validate_agents --run --only-missing # run only documents not yet analysed
 
 For each document it prints
   * source faithfulness: how many extracted numbers were found on their cited
@@ -84,6 +85,8 @@ def main() -> int:
     ap.add_argument("--doc", help="document UUID (default: all documents)")
     ap.add_argument("--golden", help="path to a golden JSON file")
     ap.add_argument("--run", action="store_true", help="run Extraction + Red Flag first")
+    ap.add_argument("--only-missing", action="store_true",
+                    help="with --run: skip documents whose extraction and red flags are already done")
     args = ap.parse_args()
 
     # Show progress: without this the run looks frozen until a document finishes.
@@ -95,6 +98,13 @@ def main() -> int:
         ids = [uuid.UUID(args.doc)] if args.doc else [d.id for d in db.query(Document).all()]
     all_ok = True
     for doc_id in ids:
+        if args.run and args.only_missing:
+            with session_scope() as db:
+                d = db.get(Document, doc_id)
+                if d.extraction_status == "done" and d.red_flag_status == "done":
+                    print(f"skipping {d.company} (already analysed)")
+                    all_ok &= report(doc_id, golden)
+                    continue
         if args.run:
             t0 = time.perf_counter()
             print(f"running Extraction + Red Flag for {doc_id} ...", flush=True)
