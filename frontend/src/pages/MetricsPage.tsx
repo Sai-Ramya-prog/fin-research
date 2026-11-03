@@ -1,10 +1,11 @@
 /** Metrics screen: real numbers the Extraction Agent read from the statements. */
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { PageHead } from '../components/PageHead'
 import { EmptyState } from '../components/EmptyState'
 import { useLoad } from '../components/useLoad'
 import {
-  analysed, fmtAmount, getMetrics, label, latestYear, listDocs, pick, pretty,
+  analysed, fmtAmount, getMetrics, label, latestYear, listDocs, pick, pretty, sourceLink,
   type DocItem, type Metric,
 } from '../api/analysis'
 
@@ -80,7 +81,9 @@ export function MetricsPage() {
                     {delta !== null
                       ? <span className={`delta ${good ? 'good' : 'bad'}`}>{delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}% YoY</span>
                       : <span />}
-                    <span className="src" title={cur.source_text ?? undefined}>p.{cur.source_page ?? '?'}</span>
+                    {cur.source_page && docId
+                      ? <Link className="src linkish" to={sourceLink(docId, cur.source_page, cur.source_text)} title="Open the source page">p.{cur.source_page}</Link>
+                      : <span className="src">p.?</span>}
                   </div>
                   {cur.status !== 'verified' && (
                     <span className="badge busy" title={cur.note ?? undefined} style={{ alignSelf: 'flex-start' }}>needs review</span>
@@ -135,7 +138,11 @@ export function MetricsPage() {
                         <td className="strong" title={any.source_text ?? undefined}>{pretty(n)}</td>
                         <td className="r mono">{cur?.value != null ? fmtAmount(cur.value, cur.unit) : '—'}</td>
                         <td className="r mono">{pri?.value != null ? fmtAmount(pri.value, pri.unit) : '—'}</td>
-                        <td className="mono">{cur?.source_page ?? pri?.source_page ?? '—'}</td>
+                        <td className="mono">
+                          {(cur?.source_page ?? pri?.source_page) && docId
+                            ? <Link className="src linkish" to={sourceLink(docId, (cur?.source_page ?? pri?.source_page)!, (cur ?? pri)?.source_text)}>p.{cur?.source_page ?? pri?.source_page}</Link>
+                            : '—'}
+                        </td>
                         <td>
                           {bad
                             ? <span className="badge busy" title={bad.note ?? undefined}>needs review</span>

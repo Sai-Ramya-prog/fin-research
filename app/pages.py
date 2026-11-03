@@ -16,7 +16,7 @@ import uuid
 from typing import Any, Iterable, Sequence
 
 from app.db.engine import session_scope
-from app.db.models import PageTag
+from app.db.models import Document, PageTag
 
 _STOPWORDS = {
     "the", "and", "for", "are", "was", "were", "what", "why", "how", "did", "does",
@@ -29,6 +29,9 @@ def save_pages(document_id: uuid.UUID, pages: Sequence[Any], tags: Sequence[Any]
     """Replace all stored rows for a document with the given pages + tags."""
     with session_scope() as db:
         db.query(PageTag).filter(PageTag.document_id == document_id).delete()
+        doc = db.get(Document, document_id)
+        if doc is not None:
+            doc.page_count = len(pages)
         for page, tag in zip(pages, tags):
             db.add(
                 PageTag(

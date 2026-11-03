@@ -7,6 +7,7 @@
 import { BrowserRouter, NavLink, Routes, Route, Navigate } from 'react-router-dom'
 import { SessionsPage } from './pages/SessionsPage'
 import { SessionDetailPage } from './pages/SessionDetailPage'
+import { DocumentPage } from './pages/DocumentPage'
 import { MetricsPage } from './pages/MetricsPage'
 import { ComparePage } from './pages/ComparePage'
 import { RedFlagsPage } from './pages/RedFlagsPage'
@@ -47,6 +48,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<SessionsPage />} />
             <Route path="/sessions/:id" element={<SessionDetailPage />} />
+            <Route path="/documents/:id" element={<DocumentPage />} />
             <Route path="/metrics" element={<MetricsPage />} />
             <Route path="/compare" element={<ComparePage />} />
             <Route path="/red-flags" element={<RedFlagsPage />} />

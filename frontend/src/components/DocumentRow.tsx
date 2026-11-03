@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getDocument, deleteDocument, type Document } from '../api/sessions'
 import { StatusBadge, AgentBadge } from './StatusBadge'
 
@@ -61,7 +62,7 @@ export function DocumentRow({ initialDoc, onDelete }: Props) {
 
   return (
     <tr>
-      <td className="strong">{doc.filename}</td>
+      <td className="strong">{doc.status === 'ready' ? <Link className="doc-link" to={`/documents/${doc.id}`}>{doc.filename}</Link> : doc.filename}</td>
       <td>{doc.company}</td>
       <td className="mono">{doc.fiscal_year}</td>
       <td className="mono">{doc.page_count ?? '—'}</td>

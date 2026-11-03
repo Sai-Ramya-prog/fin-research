@@ -177,6 +177,9 @@ def get_session_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session {session_id} not found",
         )
+    from app.api.routes_documents import backfill_page_counts
+
+    backfill_page_counts(db, list(session.documents))
     return SessionDetailOut.model_validate(session)
 
 

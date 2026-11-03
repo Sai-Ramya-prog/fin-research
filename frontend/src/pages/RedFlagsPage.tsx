@@ -1,19 +1,20 @@
 /** Red flags screen: real findings from the Red Flag Agent, each with evidence and page. */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { PageHead } from '../components/PageHead'
 import { EmptyState } from '../components/EmptyState'
 import { useLoad } from '../components/useLoad'
-import { analysed, getFlags, label, listDocs, pretty, type Flag } from '../api/analysis'
+import { analysed, getFlags, label, listDocs, pretty, sourceLink, type Flag } from '../api/analysis'
 
 type Severity = Flag['severity']
 const LEVELS: Severity[] = ['High', 'Medium', 'Low']
 const COLOUR: Record<Severity, string> = { High: 'var(--oxblood)', Medium: 'var(--brass)', Low: 'var(--info)' }
 
-interface Row extends Flag { company: string }
+interface Row extends Flag { company: string; docId: string }
 
 async function loadAll(): Promise<{ rows: Row[]; companies: number }> {
   const docs = analysed(await listDocs()).filter(d => d.red_flag_status === 'done')
-  const lists = await Promise.all(docs.map(async d => (await getFlags(d.id)).map(f => ({ ...f, company: label(d) }))))
+  const lists = await Promise.all(docs.map(async d => (await getFlags(d.id)).map(f => ({ ...f, company: label(d), docId: d.id }))))
   return { rows: lists.flat(), companies: docs.length }
 }
 
@@ -75,7 +76,9 @@ export function RedFlagsPage() {
               <h3>{f.title ?? pretty(f.type)}</h3>
               <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.9rem' }}>{f.description}</p>
               {f.evidence && <blockquote className="quote">{f.evidence}</blockquote>}
-              {f.source_page != null && <span className="src" style={{ alignSelf: 'flex-start' }}>p.{f.source_page}</span>}
+              {f.source_page != null && (
+                <Link className="src linkish" style={{ alignSelf: 'flex-start' }} to={sourceLink(f.docId, f.source_page, f.evidence)} title="Open the source page">p.{f.source_page}</Link>
+              )}
             </article>
           ))}
         </div>

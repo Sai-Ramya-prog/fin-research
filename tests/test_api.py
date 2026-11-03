@@ -356,3 +356,71 @@ class TestDocumentLifecycle:
         ) as mock_chroma:
             client.delete(f"/documents/{d['id']}")
         mock_chroma.assert_called_once_with(uuid.UUID(d["id"]))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Page map, source page image, validation
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDocumentViews:
+    def _doc_with_data(self, client, db_session):
+        from app.db.models import Document, Metric, PageTag
+
+        s = _create_session(client)
+        d = _upload_doc(client, s["id"], company="Apple")
+        doc = db_session.get(Document, uuid.UUID(d["id"]))
+        doc.fiscal_year = 2025
+        for n, (sec, tier) in enumerate([("other", 2), ("profit_loss", 1), ("balance_sheet", 1)], start=1):
+            db_session.add(PageTag(document_id=doc.id, pdf_page=n, section=sec, tier=tier,
+                                   indexed=tier == 1, is_image_only=False))
+        db_session.add_all([
+            Metric(document_id=doc.id, name="revenue", year=2025, value=416161, unit="$ in million",
+                   kind="extracted", status="verified", source_page=2, source_text="Total net sales 416,161"),
+            Metric(document_id=doc.id, name="cash", year=2025, value=35934, unit="$ in million",
+                   kind="extracted", status="needs_review", source_page=3, note="not found on page"),
+            Metric(document_id=doc.id, name="net_margin_pct", year=2025, value=26.9, unit="%",
+                   kind="ratio", status="verified"),
+        ])
+        db_session.commit()
+        return d["id"]
+
+    def test_page_map(self, client, db_session):
+        doc_id = self._doc_with_data(client, db_session)
+        body = client.get(f"/documents/{doc_id}/pages").json()
+        assert body["page_count"] == 3 and body["tier1"] == 2 and body["embedded"] == 2
+        assert [p["section"] for p in body["pages"]] == ["other", "profit_loss", "balance_sheet"]
+        assert {s["section"] for s in body["sections"]} == {"other", "profit_loss", "balance_sheet"}
+
+    def test_page_count_filled_for_old_documents(self, client, db_session):
+        doc_id = self._doc_with_data(client, db_session)
+        assert client.get(f"/documents/{doc_id}").json()["page_count"] == 3
+
+    def test_validation(self, client, db_session):
+        doc_id = self._doc_with_data(client, db_session)
+        body = client.get(f"/documents/{doc_id}/validation").json()
+        assert body["extracted_total"] == 2 and body["verified"] == 1 and body["needs_review"] == 1
+        assert body["ratios_total"] == 1
+        assert body["missing_statements"] == ["cash_flow"]
+        assert body["review_items"][0]["name"] == "cash"
+
+    def test_page_image_renders_and_highlights(self, client, db_session, tmp_path):
+        import shutil
+        from pathlib import Path
+
+        doc_id = self._doc_with_data(client, db_session)
+        src = Path(__file__).parent / "data" / "apple_fy2025_extract.pdf"
+
+        def fake_download(key):
+            dest = tmp_path / "dl.pdf"
+            shutil.copy(src, dest)
+            return str(dest)
+
+        with patch("app.page_render.storage.download_to_temp", side_effect=fake_download), \
+             patch("app.page_render._ROOT", tmp_path / "cache"):
+            r = client.get(f"/documents/{doc_id}/pages/1/image", params={"q": "Total net sales"})
+            assert r.status_code == 200 and r.content[:8] == b"\x89PNG\r\n\x1a\n"
+            assert client.get(f"/documents/{doc_id}/pages/999/image").status_code == 404
+
+    def test_views_404_for_unknown_document(self, client):
+        for path in ("pages", "validation", "detail"):
+            assert client.get(f"/documents/{uuid.uuid4()}/{path}").status_code == 404
