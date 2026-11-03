@@ -14,6 +14,7 @@ langchain-community>=0.2.0
 langchain-google-genai>=1.0.0  # Gemini embeddings
 langchain-chroma>=0.1.0        # LangChain ↔ Chroma wrapper
 langgraph>=0.1.0
+langchain-openai>=0.1.0     # only needed for LLM_PROVIDER=openai_compatible (Groq)
 
 # ──────────────────────────────────────────────
 # PDF parsing

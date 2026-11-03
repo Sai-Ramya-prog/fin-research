@@ -45,9 +45,25 @@ def _is_transient(exc: BaseException) -> bool:
 
 def call_structured(schema: type[T], system: str, user: str) -> T:
     """Ask the chat model and parse the answer into ``schema``."""
-    from langchain_google_genai import ChatGoogleGenerativeAI  # lazy: keeps tests light
-
     def build(model: str):
+        if settings.llm_provider == "openai_compatible":
+            if not settings.llm_api_key or not settings.llm_base_url:
+                raise RuntimeError(
+                    "LLM_PROVIDER=openai_compatible needs LLM_API_KEY and LLM_BASE_URL in .env"
+                )
+            from langchain_openai import ChatOpenAI  # lazy: only for this provider
+
+            return ChatOpenAI(
+                model=model,
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_base_url,
+                temperature=0,
+                timeout=settings.llm_timeout_seconds,
+                max_retries=1,
+            ).with_structured_output(schema, method="function_calling")
+
+        from langchain_google_genai import ChatGoogleGenerativeAI  # lazy: keeps tests light
+
         return ChatGoogleGenerativeAI(
             model=model,
             google_api_key=settings.google_api_key,

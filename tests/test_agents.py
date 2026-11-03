@@ -317,3 +317,47 @@ class TestOrchestrator:
         with db() as s:
             d = s.get(Document, apple_doc)
             assert (d.extraction_status, d.red_flag_status) == ("skipped", "skipped")
+
+
+class TestProviderSwitch:
+    """LLM_PROVIDER=openai_compatible builds an OpenAI-style client (Groq)."""
+
+    def test_openai_compatible_uses_base_url_and_key(self, monkeypatch):
+        import sys
+        import types
+        from app import llm
+        from app.config import settings
+
+        seen = {}
+
+        class FakeChat:
+            def __init__(self, **kw):
+                seen.update(kw)
+
+            def with_structured_output(self, schema, method=None):
+                seen["method"] = method
+                outer = self
+
+                class R:
+                    def invoke(self, msgs):
+                        return StatementAnswer(items=[])
+                return R()
+
+        monkeypatch.setitem(sys.modules, "langchain_openai", types.SimpleNamespace(ChatOpenAI=FakeChat))
+        monkeypatch.setattr(settings, "llm_provider", "openai_compatible")
+        monkeypatch.setattr(settings, "llm_api_key", "gsk_test")
+        monkeypatch.setattr(settings, "llm_base_url", "https://api.groq.com/openai/v1")
+        monkeypatch.setattr(settings, "llm_model", "some-model")
+        out = llm.call_structured(StatementAnswer, "sys", "user")
+        assert out.items == []
+        assert seen["base_url"] == "https://api.groq.com/openai/v1"
+        assert seen["api_key"] == "gsk_test" and seen["model"] == "some-model"
+        assert seen["method"] == "function_calling"
+
+    def test_missing_key_gives_clear_error(self, monkeypatch):
+        from app import llm
+        from app.config import settings
+        monkeypatch.setattr(settings, "llm_provider", "openai_compatible")
+        monkeypatch.setattr(settings, "llm_api_key", "")
+        with pytest.raises(RuntimeError, match="LLM_API_KEY"):
+            llm.call_structured(StatementAnswer, "s", "u")

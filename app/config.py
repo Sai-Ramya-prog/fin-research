@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     embedding_batch_pause_seconds: float = 2.0
 
     # ── Chat model for the Extraction Agent (reads numbers off statement pages)
+    # gemini = Google Gemini (uses GOOGLE_API_KEY).
+    # openai_compatible = any OpenAI-style API such as Groq
+    # (uses LLM_API_KEY + LLM_BASE_URL).
+    llm_provider: Literal["gemini", "openai_compatible"] = "gemini"
+    llm_api_key: str = ""
+    llm_base_url: str = ""
     llm_model: str = "gemini-3.8-flash"
     llm_max_retries: int = 4
     llm_timeout_seconds: int = 120
