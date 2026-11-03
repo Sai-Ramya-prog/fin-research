@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     embedding_batch_pause_seconds: float = 2.0
 
     # ── Chat model for the Extraction Agent (reads numbers off statement pages)
-    llm_model: str = "gemini-2.5-flash"
+    llm_model: str = "gemini-3.8-flash"
     llm_max_retries: int = 4
     # Run Extraction + Red Flag agents automatically after the Document Agent.
     run_agents: bool = True

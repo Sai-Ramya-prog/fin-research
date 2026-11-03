@@ -54,7 +54,7 @@ fails, the document stays READY and searchable, red flags are marked `skipped`.
 
 ## Extraction Agent
 * Reads the stored statement pages from `page_tags` (layout text for statements). No Chroma, no embedding quota.
-* One Gemini call per statement (P&L, balance sheet, cash flow), `gemini-2.5-flash`, forced into a JSON shape. The model only **copies** numbers plus the page and the source line.
+* One Gemini call per statement (P&L, balance sheet, cash flow), `gemini-3.8-flash`, forced into a JSON shape. The model only **copies** numbers plus the page and the source line.
 * Verify, in code: (1) every number must literally appear on the page it cites, otherwise `needs_review`; (2) statements must agree with themselves (assets = liabilities + equity, current assets <= total assets ...).
 * Total debt, margins, debt/equity, current ratio, ROE, growth, free cash flow are **calculated in code**, each with its formula. A ratio inherits `needs_review` from its inputs.
 * Output: table `metrics` (`kind` = extracted | derived | ratio, `status`, `source_page`, `source_text`, `formula`, `note`).
