@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # ── Chat model for the Extraction Agent (reads numbers off statement pages)
     llm_model: str = "gemini-3.8-flash"
     llm_max_retries: int = 4
+    llm_timeout_seconds: int = 90
     # Run Extraction + Red Flag agents automatically after the Document Agent.
     run_agents: bool = True
 

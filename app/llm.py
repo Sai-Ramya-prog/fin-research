@@ -43,6 +43,8 @@ def call_structured(schema: type[T], system: str, user: str) -> T:
         model=settings.llm_model,
         google_api_key=settings.google_api_key,
         temperature=0,
+        timeout=settings.llm_timeout_seconds,   # never hang on one call
+        max_retries=1,                          # we do our own back-off below
     ).with_structured_output(schema)
 
     last: Exception | None = None

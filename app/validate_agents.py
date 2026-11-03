@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
+import time
 import uuid
 
 from app.agents.orchestrator import run_analysis
@@ -84,13 +86,20 @@ def main() -> int:
     ap.add_argument("--run", action="store_true", help="run Extraction + Red Flag first")
     args = ap.parse_args()
 
+    # Show progress: without this the run looks frozen until a document finishes.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    for noisy in ("httpx", "httpcore", "urllib3", "google", "grpc"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     golden = json.load(open(args.golden)) if args.golden else None
     with session_scope() as db:
         ids = [uuid.UUID(args.doc)] if args.doc else [d.id for d in db.query(Document).all()]
     all_ok = True
     for doc_id in ids:
         if args.run:
+            t0 = time.perf_counter()
+            print(f"running Extraction + Red Flag for {doc_id} ...", flush=True)
             run_analysis(doc_id)
+            print(f"  finished in {time.perf_counter() - t0:.0f}s", flush=True)
         all_ok &= report(doc_id, golden)
     return 0 if all_ok else 1
 
