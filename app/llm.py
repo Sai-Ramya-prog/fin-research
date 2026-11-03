@@ -63,6 +63,8 @@ def call_structured(schema: type[T], system: str, user: str) -> T:
     for attempt in range(settings.llm_max_retries + 1):
         # After two failed tries on a busy model, switch to the fallback (if set).
         active = fallback if (fallback is not None and attempt >= 2) else llm
+        model_name = settings.llm_fallback_model if active is fallback and fallback is not None else settings.llm_model
+        logger.info("Calling %s (attempt %d)", model_name, attempt + 1)
         try:
             result = active.invoke([("system", system), ("human", user)])
             if result is None:
