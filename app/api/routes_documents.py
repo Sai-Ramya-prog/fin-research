@@ -66,6 +66,18 @@ class DocumentStatusOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DocumentListItem(BaseModel):
+    id: uuid.UUID
+    filename: str
+    company: Optional[str]
+    fiscal_year: Optional[int]
+    status: str
+    extraction_status: Optional[str] = None
+    red_flag_status: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class MetricOut(BaseModel):
     name: str
     year: Optional[int]
@@ -230,6 +242,17 @@ def index_more_pages(
 
 
 _SEVERITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
+
+
+@router.get(
+    "",
+    response_model=list[DocumentListItem],
+    summary="All documents with their analysis status",
+)
+def list_documents(db: DBSession = Depends(_db)) -> list[Document]:
+    """Used by the Metrics, Compare and Red flags screens to know which
+    companies have results."""
+    return db.query(Document).order_by(Document.company, Document.fiscal_year).all()
 
 
 @router.get(

@@ -40,7 +40,7 @@ export function App() {
               </NavLink>
             ))}
           </nav>
-          <div className="rail-foot">Milestone 1: documents are read, tagged and indexed. The other screens preview what comes next.</div>
+          <div className="rail-foot">Reports are read, indexed, analysed for key numbers and checked for red flags. Ask and report is a preview.</div>
         </aside>
         <main className="content">
           <div className="topbar"><ThemeToggle /></div>

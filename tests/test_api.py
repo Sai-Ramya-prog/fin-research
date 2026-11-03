@@ -211,6 +211,14 @@ class TestSessionsCRUD:
         assert len(r.json()) == 2
         assert all(item["document_count"] == 0 for item in r.json())
 
+    def test_list_documents_endpoint(self, client):
+        s = _create_session(client)
+        _upload_doc(client, s["id"], company="Apple")
+        r = client.get("/documents")
+        assert r.status_code == 200
+        body = r.json()
+        assert body[0]["company"] == "Apple" and "extraction_status" in body[0]
+
     def test_get_session_detail(self, client):
         s = _create_session(client)
         r = client.get(f"/sessions/{s['id']}")
