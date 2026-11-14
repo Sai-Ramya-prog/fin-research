@@ -38,7 +38,7 @@ from app.api.routes_documents import router as documents_router
 from app.api.routes_sessions import router as sessions_router
 from app.config import settings
 from app.db.engine import check_connection
-from app.index import ping_chroma
+from app.index import ping_vector_store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -121,12 +121,12 @@ def health() -> dict:
     ---------------
     status      : ``"ok"`` always (if the API process is up, this endpoint responds).
     database    : ``true`` if Postgres is reachable.
-    chroma      : ``true`` if Chroma Cloud is reachable.
+    vector_store: ``true`` if Qdrant is reachable.
     """
     db_ok = check_connection()
-    chroma_ok = ping_chroma()
+    vector_ok = ping_vector_store()
     return {
         "status": "ok",
         "database": db_ok,
-        "chroma": chroma_ok,
+        "vector_store": vector_ok,
     }

@@ -180,7 +180,7 @@ def _node_chunk(state: DocumentState) -> DocumentState:
         if statement_page_nums:
             layout_text_map: dict[int, str] = parse_layout(pdf_path, statement_page_nums)
             # Keep the clean layout text in the page store too: the Extraction
-            # Agent reads statements from there (no Chroma, no extra embedding).
+            # Agent reads statements from there (no vector DB, no extra embedding).
             save_layout_text(doc_id, layout_text_map)
             # Replace the text on matching PageResult objects with the
             # layout-preserved version (preserves column alignment in tables).
@@ -230,7 +230,7 @@ def _node_chunk(state: DocumentState) -> DocumentState:
 
 
 def _node_index(state: DocumentState) -> DocumentState:
-    """Node 4 – Embed chunks and write them to Chroma Cloud."""
+    """Node 4 – Embed chunks and write them to Qdrant."""
     if state.get("error"):
         return state
 

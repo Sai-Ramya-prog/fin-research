@@ -1,0 +1,3 @@
+# Only needed ONCE, to copy your data out of Chroma Cloud (see README).
+# Not part of the running app, so it is not in requirements.txt.
+chromadb>=0.5.0

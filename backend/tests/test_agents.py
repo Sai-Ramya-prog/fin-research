@@ -18,7 +18,7 @@ from unittest.mock import patch
 import pytest
 
 for _k, _v in dict(
-    GOOGLE_API_KEY="x", CHROMA_API_KEY="x", CHROMA_TENANT="x", CHROMA_DATABASE="x",
+    GOOGLE_API_KEY="x", QDRANT_URL=":memory:",
     DATABASE_URL="postgresql+psycopg://u:p@localhost/db", EMBEDDING_PROVIDER="fake", STORAGE_BACKEND="local",
 ).items():
     os.environ.setdefault(_k, _v)

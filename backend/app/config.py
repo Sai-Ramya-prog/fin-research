@@ -7,7 +7,8 @@ Usage:
     from app.config import settings
 
 Fails fast with a clear human-readable message when a required variable for
-the chosen embedding provider or for Chroma Cloud is missing.
+the chosen embedding provider, the vector database (Qdrant) or Postgres is
+missing.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
     """All application settings.  Loaded from the environment (or .env)."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=".env",   # run the backend from the backend/ folder
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -57,11 +58,12 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     openai_api_key: str = ""
 
-    # ── Chroma Cloud ──────────────────────────────────────────────────────
-    chroma_api_key: str = ""
-    chroma_tenant: str = ""
-    chroma_database: str = ""
-    chroma_collection: str = "financial_docs"
+    # ── Vector database (Qdrant) ──────────────────────────────────────────
+    # QDRANT_URL: Qdrant Cloud URL, http://localhost:6333 for local Docker,
+    # or ":memory:" (in-process; used by the tests).
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "financial_docs"
 
     # ── Relational DB (hosted Postgres) ───────────────────────────────────
     database_url: str = ""
@@ -108,21 +110,18 @@ class Settings(BaseSettings):
                 )
         # "fake" provider requires no key – used for tests / dry-runs.
 
-        # ── Chroma Cloud settings ─────────────────────────────────────────
-        chroma_missing = [
-            name
-            for name, val in [
-                ("CHROMA_API_KEY", self.chroma_api_key),
-                ("CHROMA_TENANT", self.chroma_tenant),
-                ("CHROMA_DATABASE", self.chroma_database),
-            ]
-            if not val
-        ]
-        if chroma_missing:
+        # ── Qdrant settings ───────────────────────────────────────────────
+        if not self.qdrant_url:
             errors.append(
-                f"Missing Chroma Cloud setting(s): {', '.join(chroma_missing)}.\n"
-                "  → Sign up at https://trychroma.com and create a tenant + database.\n"
-                "  → Copy the API key and add all three values to your .env file."
+                "QDRANT_URL is required.\n"
+                "  → Create a free cluster at https://cloud.qdrant.io\n"
+                "  → Add QDRANT_URL and QDRANT_API_KEY to your backend/.env file\n"
+                "    (for local Docker use QDRANT_URL=http://localhost:6333, no key)."
+            )
+        elif self.qdrant_url.startswith("https://") and not self.qdrant_api_key:
+            errors.append(
+                "QDRANT_API_KEY is required for a Qdrant Cloud URL.\n"
+                "  → Copy the API key from the Qdrant Cloud dashboard into backend/.env."
             )
 
         # ── Database URL ──────────────────────────────────────────────────
@@ -142,7 +141,7 @@ class Settings(BaseSettings):
             )
             body = "\n\n".join(f"  ✗ {e}" for e in errors)
             footer = (
-                "\n\nCopy .env.example → .env and fill in the missing values, then retry.\n"
+                "\n\nCopy backend/.env.example → backend/.env and fill in the missing values, then retry.\n"
             )
             raise ValueError(header + body + footer)
 

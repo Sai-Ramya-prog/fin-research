@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 
 for _k, _v in dict(
-    GOOGLE_API_KEY="x", CHROMA_API_KEY="x", CHROMA_TENANT="x", CHROMA_DATABASE="x",
+    GOOGLE_API_KEY="x", QDRANT_URL=":memory:",
     DATABASE_URL="postgresql+psycopg://u:p@localhost/db",
     STORAGE_ENDPOINT_URL="https://x.example", STORAGE_BUCKET="b",
     STORAGE_ACCESS_KEY_ID="x", STORAGE_SECRET_ACCESS_KEY="x",

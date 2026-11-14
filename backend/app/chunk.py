@@ -6,7 +6,7 @@ Chunking – Document Agent, Node 3.
 We receive the raw page text from :pymod:`app.parse` (``PageResult``) and the
 corresponding tagging information from :pymod:`app.tag` (``TagResult``).
 The goal is to turn each page into one or more *chunks* suitable for storage in
-Chroma (or any vector‑store).  Chunk metadata must be safe for Chroma – keys are
+the vector store (Qdrant).  Chunk metadata must be safe for it – keys are
 lower‑case, use underscores, contain no dots or spaces.
 
 Rules
@@ -31,7 +31,7 @@ Rules
   ``source_type``      – ``table`` for statement pages, ``narrative`` otherwise
 
 The function ``chunk_pages`` returns a list of dictionaries, each with the
-keys ``text`` and ``metadata`` ready to be fed to a Chroma collection.
+keys ``text`` and ``metadata`` ready to be fed to the vector store.
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def _split_large_table(text: str) -> List[str]:
 
 
 def _metadata_from(tag: TagResult, page: PageResult, pdf_name: str) -> Dict[str, str]:
-    """Create a Chroma‑safe metadata dictionary.
+    """Create a vector-store-safe metadata dictionary.
     All keys are lower‑case, use underscores and contain only alphanumerics.
     ``pdf_name`` is the filename without directory components.
     """

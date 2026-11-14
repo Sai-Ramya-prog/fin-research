@@ -1,3 +1,5 @@
+> **Update (Nov 2026):** Chroma Cloud was shut down, so the vector database is now **Qdrant** (all vector code is in `backend/app/vectorstore.py`), and the Python code lives in `backend/` with the React app in `frontend/`. The text below is the original plan and still says Chroma and `app/` in places; see `README.md` for the current layout and commands.
+
 # Implementation Plan: Milestone 1 (Weeks 1-2)
 **Project:** Multi-Agent Financial Research System
 **Scope of this plan:** React frontend + FastAPI backend for research workspace/sessions + **Document Agent** (upload, parsing, chunking, embeddings, vector DB indexing) with 4 pre-loaded seed company reports.

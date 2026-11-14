@@ -79,10 +79,6 @@ def _make_state(**overrides) -> DocumentState:
 @pytest.fixture(autouse=True)
 def _patch_env(monkeypatch):
     monkeypatch.setenv("EMBEDDING_PROVIDER", "fake")
-    monkeypatch.setenv("CHROMA_API_KEY", "key")
-    monkeypatch.setenv("CHROMA_TENANT", "tenant")
-    monkeypatch.setenv("CHROMA_DATABASE", "db")
-    monkeypatch.setenv("CHROMA_COLLECTION", "col")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///./test_graph.db")
     monkeypatch.setenv("GOOGLE_API_KEY", "dummy")
 

@@ -1,4 +1,5 @@
 # === Environment / secrets ===
+# (matches backend/.env and frontend/.env; the *.env.example files stay tracked)
 .env
 *.env
 
@@ -25,7 +26,7 @@ htmlcov/
 *.coverage.*
 
 # === Alembic ===
-# keep alembic/versions tracked; do NOT add it here
+# keep backend/alembic/versions tracked; do NOT add it here
 
 # === Node / frontend ===
 node_modules/
@@ -49,4 +50,7 @@ Thumbs.db
 local_storage/
 
 # === Data (PDFs are in cloud storage; never commit large binaries) ===
-data/seed/*.pdf
+backend/data/seed/*.pdf
+
+# === Chroma -> Qdrant migration backup (contains all chunk text + vectors) ===
+backend/chroma_backup*.jsonl

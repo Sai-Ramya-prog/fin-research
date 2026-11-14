@@ -18,8 +18,8 @@ Public API
       errors, and a configurable pause is inserted between batches.
 
   embedding_fingerprint() -> str
-      Returns  "<provider>:<model>:<dimension>"  –  stored in Chroma collection
-      metadata (Task 7) so we can detect model mismatches early.
+      Returns  "<provider>:<model>:<dimension>"  –  checked against the Qdrant collection's
+      vector size so we can detect model mismatches early.
 
 Rate-limit handling (Gemini free tier)
 ───────────────────────────────────────
@@ -32,7 +32,7 @@ Rate-limit handling (Gemini free tier)
 
 Design note: we intentionally pick ONE model for the whole project.
 Vectors produced by different models are incompatible and cannot be
-searched together in Chroma.
+searched together in the vector store.
 """
 
 from __future__ import annotations
@@ -248,9 +248,9 @@ def embedding_fingerprint() -> str:
         "gemini:gemini-embedding-001:3072"
         "fake:fake:768"
 
-    This value is stored in the Chroma collection metadata (Task 7) so
-    mismatches between the stored vectors and the active model are caught
-    before any search is attempted.
+    Its dimension is checked against the Qdrant collection's vector size
+    (``app.vectorstore.ensure_collection``) and the whole fingerprint is stored
+    with every chunk (payload ``embedding_fingerprint``).
     """
     provider = settings.embedding_provider
     model = settings.embedding_model

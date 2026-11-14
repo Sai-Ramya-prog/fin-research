@@ -5,9 +5,9 @@ Unit tests for app/index.py (Task 7: Embedding & vector indexing).
 
 All tests use:
   - ``EMBEDDING_PROVIDER=fake`` so no real embedding API is called.
-  - A mock Chroma ``EphemeralClient`` (in-memory) instead of CloudClient so
-    no Chroma Cloud credentials are needed.
-  - A SQLite throwaway database (via ``app.db.engine``) for Document rows.
+  - Qdrant in its in-process ``:memory:`` mode (see the ``store`` fixture), so
+    no Qdrant server, key or network is needed.
+  - ``_set_document_status`` is replaced by a tracker, so no database is needed.
 
 Run with:
     pytest tests/test_index.py -v
@@ -56,30 +56,56 @@ def _make_chunks(n: int, doc_id: uuid.UUID) -> List[Dict[str, Any]]:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+DIM = 768  # size of the fake embedding vectors (fake:fake:768)
+
+
+def _vecs(texts):
+    return [[0.1] * DIM for _ in texts]
+
+
 @pytest.fixture(autouse=True)
 def _patch_env(monkeypatch):
-    """Override env so no real Chroma / DB credentials are needed."""
     monkeypatch.setenv("EMBEDDING_PROVIDER", "fake")
-    monkeypatch.setenv("CHROMA_API_KEY", "test-key")
-    monkeypatch.setenv("CHROMA_TENANT", "test-tenant")
-    monkeypatch.setenv("CHROMA_DATABASE", "test-db")
-    monkeypatch.setenv("CHROMA_COLLECTION", "test-collection")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///./test_index.db")
-    monkeypatch.setenv("GOOGLE_API_KEY", "dummy")
 
 
 @pytest.fixture()
-def ephemeral_collection():
-    """Return an in-memory Chroma collection using EphemeralClient."""
-    import chromadb
-    client = chromadb.EphemeralClient()
-    # EphemeralClient state is shared across tests in one process, so give every
-    # test its own collection.
-    collection = client.get_or_create_collection(
-        name=f"test-collection-{uuid.uuid4().hex[:8]}",
-        metadata={"embedding_fingerprint": "fake:fake-model:16"},
-    )
-    return collection
+def store(monkeypatch):
+    """An empty in-memory Qdrant collection, fresh for every test.
+
+    Returns a small helper with ``count()``, ``ids(doc_id)`` and ``payloads(doc_id)``.
+    """
+    from qdrant_client import QdrantClient, models
+    from app import vectorstore
+
+    client = QdrantClient(":memory:")
+    name = f"test-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setattr(vectorstore, "get_client", lambda: client)
+    monkeypatch.setattr(vectorstore.settings, "qdrant_collection", name)
+    vectorstore._ensured.clear()
+
+    class Store:
+        client_ = client
+        name_ = name
+
+        def count(self):
+            return client.count(name).count
+
+        def _by_doc(self, doc_id):
+            flt = models.Filter(must=[models.FieldCondition(
+                key="doc_id", match=models.MatchValue(value=str(doc_id)))])
+            pts, _ = client.scroll(name, scroll_filter=flt, limit=10_000, with_payload=True)
+            return pts
+
+        def ids(self, doc_id):
+            return {p.payload["chunk_id"] for p in self._by_doc(doc_id)}
+
+        def payloads(self, doc_id):
+            return [p.payload for p in self._by_doc(doc_id)]
+
+        def add_raw(self, chunk_id, doc_id, text="old"):
+            vectorstore.upsert([chunk_id], [text], [{"doc_id": str(doc_id)}], [[0.1] * DIM])
+
+    return Store()
 
 
 # ---------------------------------------------------------------------------
@@ -96,42 +122,26 @@ def _make_status_tracker():
 
 
 # ---------------------------------------------------------------------------
-# Tests – _cloud_client
+# Tests – settings
 # ---------------------------------------------------------------------------
 
-class TestCloudClient:
-    def test_raises_when_tenant_missing(self):
-        from app import index as idx
-        bad_settings = MagicMock()
-        bad_settings.chroma_tenant = ""
-        bad_settings.chroma_database = "db"
-        bad_settings.chroma_api_key = "key"
-        bad_settings.chroma_collection = "col"
-        with patch.object(idx, "settings", bad_settings):
-            with pytest.raises(RuntimeError, match="CHROMA_TENANT"):
-                idx._cloud_client()
+class TestQdrantSettings:
+    def _make(self, **kw):
+        from app.config import Settings
+        base = dict(_env_file=None, google_api_key="x", database_url="postgresql://x/y")
+        base.update(kw)
+        return Settings(**base)
 
-    def test_raises_when_api_key_missing(self):
-        from app import index as idx
-        bad_settings = MagicMock()
-        bad_settings.chroma_tenant = "tenant"
-        bad_settings.chroma_database = "db"
-        bad_settings.chroma_api_key = ""
-        bad_settings.chroma_collection = "col"
-        with patch.object(idx, "settings", bad_settings):
-            with pytest.raises(RuntimeError, match="CHROMA_API_KEY"):
-                idx._cloud_client()
+    def test_missing_url_fails_fast(self):
+        with pytest.raises(ValueError, match="QDRANT_URL"):
+            self._make(qdrant_url="")
 
-    def test_raises_when_database_missing(self):
-        from app import index as idx
-        bad_settings = MagicMock()
-        bad_settings.chroma_tenant = "tenant"
-        bad_settings.chroma_database = ""
-        bad_settings.chroma_api_key = "key"
-        bad_settings.chroma_collection = "col"
-        with patch.object(idx, "settings", bad_settings):
-            with pytest.raises(RuntimeError, match="CHROMA_DATABASE"):
-                idx._cloud_client()
+    def test_cloud_url_needs_api_key(self):
+        with pytest.raises(ValueError, match="QDRANT_API_KEY"):
+            self._make(qdrant_url="https://abc.cloud.qdrant.io", qdrant_api_key="")
+
+    def test_local_url_needs_no_key(self):
+        assert self._make(qdrant_url="http://localhost:6333").qdrant_url.startswith("http://")
 
 
 # ---------------------------------------------------------------------------
@@ -139,24 +149,21 @@ class TestCloudClient:
 # ---------------------------------------------------------------------------
 
 class TestIndexChunks:
-    def test_single_chunk_indexed_correctly(self, ephemeral_collection):
+    def test_single_chunk_indexed_correctly(self, store):
         from app import index as idx
         doc_id = uuid.uuid4()
         chunks = _make_chunks(1, doc_id)
         statuses, fake_set = _make_status_tracker()
 
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
         ):
             idx.index_chunks(doc_id, chunks)
 
         assert statuses[-1][0] == "ready"
-        results = ephemeral_collection.get(where={"doc_id": str(doc_id)})
-        assert len(results["ids"]) == 1
-        assert results["ids"][0] == f"{doc_id}:1:0"  # <doc>:<pdf_page>:<k>
+        assert store.ids(doc_id) == {f"{doc_id}:1:0"}  # <doc>:<pdf_page>:<k>
 
-    def test_idempotent_second_run_same_count(self, ephemeral_collection):
+    def test_idempotent_second_run_same_count(self, store):
         """Indexing the same doc twice leaves exactly the same chunk count."""
         from app import index as idx
         doc_id = uuid.uuid4()
@@ -164,29 +171,23 @@ class TestIndexChunks:
         _, fake_set = _make_status_tracker()
 
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
         ):
             idx.index_chunks(doc_id, chunks)
-            first_count = len(
-                ephemeral_collection.get(where={"doc_id": str(doc_id)})["ids"]
-            )
+            first_count = len(store.ids(doc_id))
             idx.index_chunks(doc_id, chunks)
-            second_count = len(
-                ephemeral_collection.get(where={"doc_id": str(doc_id)})["ids"]
-            )
+            second_count = len(store.ids(doc_id))
 
         assert first_count == 5
         assert second_count == 5  # idempotent – not 10
 
-    def test_status_sequence_indexing_then_ready(self, ephemeral_collection):
+    def test_status_sequence_indexing_then_ready(self, store):
         from app import index as idx
         doc_id = uuid.uuid4()
         chunks = _make_chunks(3, doc_id)
         statuses, fake_set = _make_status_tracker()
 
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
         ):
             idx.index_chunks(doc_id, chunks)
@@ -195,8 +196,8 @@ class TestIndexChunks:
         assert "indexing" in status_values
         assert status_values[-1] == "ready"
 
-    def test_metadata_none_printed_page_replaced_with_minus_one(self, ephemeral_collection):
-        """None printed_page should become -1, not break Chroma."""
+    def test_metadata_none_printed_page_replaced_with_minus_one(self, store):
+        """None printed_page should become -1, not break the vector store."""
         from app import index as idx
         doc_id = uuid.uuid4()
         chunks = _make_chunks(1, doc_id)
@@ -204,17 +205,13 @@ class TestIndexChunks:
         _, fake_set = _make_status_tracker()
 
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
         ):
             idx.index_chunks(doc_id, chunks)
 
-        results = ephemeral_collection.get(
-            where={"doc_id": str(doc_id)}, include=["metadatas"]
-        )
-        assert results["metadatas"][0]["printed_page"] == -1
+        assert store.payloads(doc_id)[0]["printed_page"] == -1
 
-    def test_chunk_ids_deterministic(self, ephemeral_collection):
+    def test_chunk_ids_deterministic(self, store):
         """Chunk IDs are <doc_id>:<index> — deterministic."""
         from app import index as idx
         doc_id = uuid.uuid4()
@@ -222,16 +219,14 @@ class TestIndexChunks:
         _, fake_set = _make_status_tracker()
 
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
         ):
             idx.index_chunks(doc_id, chunks)
 
-        results = ephemeral_collection.get(where={"doc_id": str(doc_id)})
         expected_ids = {f"{doc_id}:1:0", f"{doc_id}:2:0", f"{doc_id}:3:0"}
-        assert set(results["ids"]) == expected_ids
+        assert store.ids(doc_id) == expected_ids
 
-    def test_embedding_error_marks_document_failed(self, ephemeral_collection):
+    def test_embedding_error_marks_document_failed(self, store):
         """If embedding raises an exception 3 times the doc is marked failed."""
         from app import index as idx
         doc_id = uuid.uuid4()
@@ -242,7 +237,6 @@ class TestIndexChunks:
         boom_embeddings.embed_documents.side_effect = RuntimeError("API error")
 
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
             patch("app.index.get_embeddings", return_value=boom_embeddings),
             patch("time.sleep"),
@@ -253,7 +247,7 @@ class TestIndexChunks:
         status_values = [s[0] for s in statuses]
         assert "failed" in status_values
 
-    def test_writes_to_chroma_after_every_embedding_batch(self, ephemeral_collection):
+    def test_writes_to_store_after_every_embedding_batch(self, store):
         """Each embedded batch (<= EMBED_BATCH_SIZE) is written immediately, so a
         later failure never loses vectors that were already paid for."""
         from app import index as idx
@@ -261,42 +255,40 @@ class TestIndexChunks:
         chunks = _make_chunks(350, doc_id)
         _, fake_set = _make_status_tracker()
 
+        from app import vectorstore
         add_calls = []
-        original_add = ephemeral_collection.add
+        original_upsert = vectorstore.upsert
 
-        def tracking_add(**kwargs):
-            add_calls.append(len(kwargs["ids"]))
-            return original_add(**kwargs)
-
-        ephemeral_collection.add = tracking_add
+        def tracking_upsert(ids, texts, metas, vectors):
+            add_calls.append(len(ids))
+            return original_upsert(ids, texts, metas, vectors)
 
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
+            patch.object(vectorstore, "upsert", side_effect=tracking_upsert),
         ):
             idx.index_chunks(doc_id, chunks)
 
         assert sum(add_calls) == 350
         assert max(add_calls) <= idx.EMBED_BATCH_SIZE
-        assert ephemeral_collection.count() == 350
+        assert store.count() == 350
 
-    def test_rerun_embeds_nothing_when_already_indexed(self, ephemeral_collection):
+    def test_rerun_embeds_nothing_when_already_indexed(self, store):
         from app import index as idx
         doc_id = uuid.uuid4()
         chunks = _make_chunks(40, doc_id)
         _, fake_set = _make_status_tracker()
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
             patch.object(idx, "get_embeddings") as ge,
         ):
-            ge.return_value.embed_documents.side_effect = lambda t: [[0.1] * 16 for _ in t]
+            ge.return_value.embed_documents.side_effect = _vecs
             idx.index_chunks(doc_id, chunks)
             first = ge.return_value.embed_documents.call_count
             idx.index_chunks(doc_id, chunks)  # second run: nothing to embed
             assert ge.return_value.embed_documents.call_count == first
 
-    def test_resume_embeds_only_missing_chunks(self, ephemeral_collection):
+    def test_resume_embeds_only_missing_chunks(self, store):
         from app import index as idx
         doc_id = uuid.uuid4()
         chunks = _make_chunks(70, doc_id)
@@ -305,26 +297,21 @@ class TestIndexChunks:
 
         def fake_embed(texts):
             embedded.extend(texts)
-            return [[0.1] * 16 for _ in texts]
+            return _vecs(texts)
 
         # Pre-store the first 32 chunks as if an earlier run got that far.
-        ephemeral_collection.add(
-            ids=[f"{doc_id}:{i + 1}:0" for i in range(32)],
-            documents=[c["text"] for c in chunks[:32]],
-            metadatas=[{"doc_id": str(doc_id)}] * 32,
-            embeddings=[[0.1] * 16] * 32,
-        )
+        for i in range(32):
+            store.add_raw(f"{doc_id}:{i + 1}:0", doc_id, chunks[i]["text"])
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
             patch.object(idx, "get_embeddings") as ge,
         ):
             ge.return_value.embed_documents.side_effect = fake_embed
             idx.index_chunks(doc_id, chunks)
         assert len(embedded) == 38
-        assert ephemeral_collection.count() == 70
+        assert store.count() == 70
 
-    def test_daily_quota_marks_failed_and_keeps_progress(self, ephemeral_collection):
+    def test_daily_quota_marks_failed_and_keeps_progress(self, store):
         from app import index as idx
         from app.embeddings import QuotaExhaustedError
         doc_id = uuid.uuid4()
@@ -336,17 +323,16 @@ class TestIndexChunks:
             calls["n"] += 1
             if calls["n"] == 2:
                 raise QuotaExhaustedError("Gemini daily embedding quota exhausted.")
-            return [[0.1] * 16 for _ in texts]
+            return _vecs(texts)
 
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
             patch.object(idx, "get_embeddings") as ge,
         ):
             ge.return_value.embed_documents.side_effect = fake_embed
             with pytest.raises(QuotaExhaustedError):
                 idx.index_chunks(doc_id, chunks)
-        assert ephemeral_collection.count() == idx.EMBED_BATCH_SIZE  # first batch kept
+        assert store.count() == idx.EMBED_BATCH_SIZE  # first batch kept
         assert statuses[-1][0] == "failed"
         assert "quota exhausted" in statuses[-1][1]
 
@@ -367,78 +353,104 @@ class TestTieredIds:
         more = chunks + [{"text": "d", "metadata": {"pdf_page": "7"}}]
         assert chunk_ids(doc_id, more)[:3] == chunk_ids(doc_id, chunks)
 
-    def test_old_format_chunks_are_removed(self, ephemeral_collection):
+    def test_old_format_chunks_are_removed(self, store):
         from app import index as idx
         doc_id = uuid.uuid4()
         _, fake_set = _make_status_tracker()
         # legacy chunk from the old id scheme  <doc>:<n>
-        ephemeral_collection.add(
-            ids=[f"{doc_id}:0"], documents=["old"],
-            metadatas=[{"doc_id": str(doc_id)}], embeddings=[[0.1] * 16],
-        )
+        store.add_raw(f"{doc_id}:0", doc_id)
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
             patch.object(idx, "get_embeddings") as ge,
         ):
-            ge.return_value.embed_documents.side_effect = lambda t: [[0.1] * 16 for _ in t]
+            ge.return_value.embed_documents.side_effect = _vecs
             pages = idx.index_chunks(doc_id, _make_chunks(2, doc_id))
-        ids = set(ephemeral_collection.get(where={"doc_id": str(doc_id)})["ids"])
+        ids = store.ids(doc_id)
         assert f"{doc_id}:0" not in ids
         assert pages == [1, 2]
 
-    def test_track_status_false_leaves_status_alone(self, ephemeral_collection):
+    def test_track_status_false_leaves_status_alone(self, store):
         from app import index as idx
         doc_id = uuid.uuid4()
         statuses, fake_set = _make_status_tracker()
         with (
-            patch.object(idx, "_get_collection", return_value=ephemeral_collection),
             patch.object(idx, "_set_document_status", side_effect=fake_set),
             patch.object(idx, "get_embeddings") as ge,
         ):
-            ge.return_value.embed_documents.side_effect = lambda t: [[0.1] * 16 for _ in t]
+            ge.return_value.embed_documents.side_effect = _vecs
             idx.index_chunks(doc_id, _make_chunks(3, doc_id), track_status=False)
         assert statuses == []
 
 
 # ---------------------------------------------------------------------------
-# Tests – ping_chroma
+# Tests – ping_vector_store
 # ---------------------------------------------------------------------------
 
-class TestPingChroma:
-    def test_ping_returns_true_when_collection_ok(self, ephemeral_collection):
+class TestPingVectorStore:
+    def test_ping_returns_true_when_store_ok(self, store):
         from app import index as idx
-        with patch.object(idx, "_get_collection", return_value=ephemeral_collection):
-            assert idx.ping_chroma() is True
+        assert idx.ping_vector_store() is True
 
-    def test_ping_returns_false_on_exception(self):
-        from app import index as idx
-        with patch.object(idx, "_get_collection", side_effect=RuntimeError("bad key")):
-            assert idx.ping_chroma() is False
+    def test_ping_returns_false_on_exception(self, monkeypatch):
+        from app import index as idx, vectorstore
+        monkeypatch.setattr(vectorstore, "get_client", MagicMock(side_effect=RuntimeError("bad key")))
+        vectorstore._ensured.clear()
+        assert idx.ping_vector_store() is False
 
 
 # ---------------------------------------------------------------------------
-# Tests – fingerprint mismatch
+# Tests – embedding size mismatch
 # ---------------------------------------------------------------------------
 
-class TestFingerprintMismatch:
-    def test_mismatched_fingerprint_raises(self):
-        """Stored fingerprint != current fingerprint must raise RuntimeError."""
+class TestEmbeddingSizeMismatch:
+    def test_collection_with_other_vector_size_raises(self, store):
+        """A collection built with a different embedding model must not be reused."""
+        from qdrant_client import models
+        from app import vectorstore
+        store.client_.create_collection(
+            "wrong-size", vectors_config=models.VectorParams(size=16, distance=models.Distance.COSINE))
+        vectorstore.settings.qdrant_collection = "wrong-size"
+        vectorstore._ensured.clear()
+        with pytest.raises(RuntimeError, match="size mismatch"):
+            vectorstore.ensure_collection()
+
+
+# ---------------------------------------------------------------------------
+# Tests – id conversion and deletion
+# ---------------------------------------------------------------------------
+
+class TestVectorStoreHelpers:
+    def test_point_id_is_stable_uuid(self):
+        from app.vectorstore import point_id
+        a = point_id("abc:1:0")
+        assert a == point_id("abc:1:0")
+        assert a != point_id("abc:1:1")
+        uuid.UUID(a)  # valid UUID
+
+    def test_point_id_matches_known_value(self):
+        """Guards the namespace: changing it would orphan every stored chunk."""
+        from app.vectorstore import point_id
+        assert point_id("doc:1:0") == str(uuid.uuid5(uuid.UUID("6f1c2a52-0000-4000-8000-000000000001"), "doc:1:0"))
+
+    def test_delete_document_removes_only_that_document(self, store):
+        from app import vectorstore
+        d1, d2 = uuid.uuid4(), uuid.uuid4()
+        for i in range(3):
+            store.add_raw(f"{d1}:{i}:0", d1)
+        store.add_raw(f"{d2}:1:0", d2)
+        assert vectorstore.delete_document(d1) == 3
+        assert store.ids(d1) == set()
+        assert store.ids(d2) == {f"{d2}:1:0"}
+
+    def test_force_reindex_replaces_chunks(self, store):
         from app import index as idx
-        import chromadb
-
-        client = chromadb.EphemeralClient()
-        # Create collection with a DIFFERENT fingerprint
-        client.get_or_create_collection(
-            name="test-fp",
-            metadata={"embedding_fingerprint": "openai:text-embedding-3-small:1536"},
-        )
-
+        doc_id = uuid.uuid4()
+        _, fake_set = _make_status_tracker()
         with (
-            patch.object(idx, "_cloud_client", return_value=client),
-            patch.object(idx, "settings") as mock_settings,
-            patch("app.index.embedding_fingerprint", return_value="fake:fake-model:16"),
+            patch.object(idx, "_set_document_status", side_effect=fake_set),
+            patch.object(idx, "get_embeddings") as ge,
         ):
-            mock_settings.chroma_collection = "test-fp"
-            with pytest.raises(RuntimeError, match="fingerprint mismatch"):
-                idx._get_collection()
+            ge.return_value.embed_documents.side_effect = _vecs
+            idx.index_chunks(doc_id, _make_chunks(3, doc_id))
+            idx.index_chunks(doc_id, _make_chunks(2, doc_id), force=True)
+        assert len(store.ids(doc_id)) == 2

@@ -7,7 +7,7 @@ LangGraph wiring for the Extraction Agent.
      └──────────┴─────────┴──────────┴─────────┘
                  (any error → [fail] → END)
 
-load     reads the stored statement pages of the document (page store, no Chroma)
+load     reads the stored statement pages of the document (page store, no vector DB)
 extract  one Gemini call per statement (P&L, balance sheet, cash flow); the model
          only copies numbers + the line it saw them on
 verify   source check (number really on the cited page) + consistency checks

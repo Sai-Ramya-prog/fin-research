@@ -10,7 +10,7 @@ All external I/O is mocked:
   - DB calls via a fresh in-memory SQLite engine (override ``get_session``).
   - ``storage.save``, ``storage.delete``, ``storage.exists`` mocked.
   - ``run_pipeline`` mocked to avoid real pipeline runs.
-  - ``ping_chroma`` and ``check_connection`` mocked for ``/health``.
+  - ``ping_vector_store`` and ``check_connection`` mocked for ``/health``.
 
 Run with:
     pytest tests/test_api.py -v
@@ -97,7 +97,7 @@ def client(db_session):
       - DB overridden to in-memory SQLite.
       - storage.save / storage.delete mocked (no real S3).
       - run_pipeline mocked (no real pipeline).
-      - ping_chroma and check_connection mocked.
+      - ping_vector_store and check_connection mocked.
     """
     from app.api.main import app
     from app.api.routes_sessions import _db as sessions_db
@@ -115,8 +115,8 @@ def client(db_session):
         patch("app.api.routes_sessions.storage.save", return_value=None),
         patch("app.api.routes_documents.storage.delete", return_value=None),
         patch("app.api.routes_sessions.run_pipeline", return_value=None),
-        patch("app.api.routes_documents._delete_chroma_chunks", return_value=None),
-        patch("app.api.main.ping_chroma", return_value=True),
+        patch("app.api.routes_documents._delete_vector_chunks", return_value=None),
+        patch("app.api.main.ping_vector_store", return_value=True),
         patch("app.api.main.check_connection", return_value=True),
     ):
         with TestClient(app) as c:
@@ -128,10 +128,6 @@ def client(db_session):
 @pytest.fixture(autouse=True)
 def _patch_env(monkeypatch):
     monkeypatch.setenv("EMBEDDING_PROVIDER", "fake")
-    monkeypatch.setenv("CHROMA_API_KEY", "key")
-    monkeypatch.setenv("CHROMA_TENANT", "tenant")
-    monkeypatch.setenv("CHROMA_DATABASE", "db")
-    monkeypatch.setenv("CHROMA_COLLECTION", "col")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///./test_api.db")
     monkeypatch.setenv("GOOGLE_API_KEY", "dummy")
     monkeypatch.setenv("STORAGE_BACKEND", "local")
@@ -171,14 +167,14 @@ class TestHealth:
         body = r.json()
         assert body["status"] == "ok"
         assert body["database"] is True
-        assert body["chroma"] is True
+        assert body["vector_store"] is True
 
-    def test_health_chroma_down(self, client):
-        with patch("app.api.main.ping_chroma", return_value=False):
+    def test_health_vector_store_down(self, client):
+        with patch("app.api.main.ping_vector_store", return_value=False):
             r = client.get("/health")
         body = r.json()
         assert body["status"] == "ok"
-        assert body["chroma"] is False
+        assert body["vector_store"] is False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -347,15 +343,15 @@ class TestDocumentLifecycle:
         r = client.get(f"/sessions/{s['id']}")
         assert r.json()["documents"] == []
 
-    def test_delete_calls_chroma_cleanup(self, client):
-        """Chroma chunk deletion must be attempted on document delete."""
+    def test_delete_calls_vector_store_cleanup(self, client):
+        """Vector chunk deletion must be attempted on document delete."""
         s = _create_session(client)
         d = _upload_doc(client, s["id"])
         with patch(
-            "app.api.routes_documents._delete_chroma_chunks"
-        ) as mock_chroma:
+            "app.api.routes_documents._delete_vector_chunks"
+        ) as mock_vectors:
             client.delete(f"/documents/{d['id']}")
-        mock_chroma.assert_called_once_with(uuid.UUID(d["id"]))
+        mock_vectors.assert_called_once_with(uuid.UUID(d["id"]))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

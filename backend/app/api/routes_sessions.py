@@ -194,7 +194,7 @@ def delete_session(
 ) -> None:
     """
     Delete the session.  All child documents are cascade-deleted by the
-    database (``ondelete=CASCADE``).  Storage files and Chroma chunks are
+    database (``ondelete=CASCADE``).  Storage files and vector chunks are
     NOT removed here – use ``DELETE /documents/{id}`` for each document first.
     """
     session = db.get(Session, session_id)
