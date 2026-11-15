@@ -1,7 +1,7 @@
 /**
  * src/App.tsx
  * Shell (navy side rail + content) and the six screens.
- * Sessions and Workspace are live; the rest show sample data for the demo.
+ * Sessions, Metrics, Red flags, Document and Ask and report are live; Compare may still show sample data.
  */
 
 import { BrowserRouter, NavLink, Routes, Route, Navigate } from 'react-router-dom'
@@ -19,7 +19,7 @@ const NAV = [
   { to: '/metrics', label: 'Metrics', hint: 'Numbers with sources' },
   { to: '/compare', label: 'Compare', hint: 'Companies side by side' },
   { to: '/red-flags', label: 'Red flags', hint: 'Warnings with evidence' },
-  { to: '/ask', label: 'Ask and report', hint: 'Why, how, and the write-up' },
+  { to: '/ask', label: 'Ask and report', hint: 'Why, how, and the write-up', live: true },
 ]
 
 export function App() {
@@ -41,7 +41,7 @@ export function App() {
               </NavLink>
             ))}
           </nav>
-          <div className="rail-foot">Reports are read, indexed, analysed for key numbers and checked for red flags. Ask and report is a preview.</div>
+          <div className="rail-foot">Reports are read, indexed, analysed for key numbers and checked for red flags. Then you can read a cited report and ask questions.</div>
         </aside>
         <main className="content">
           <div className="topbar"><ThemeToggle /></div>

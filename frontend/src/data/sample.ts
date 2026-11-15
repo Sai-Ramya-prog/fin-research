@@ -104,18 +104,3 @@ export const FLAGS: Flag[] = [
   { id: 6, severity: 'Low', company: 'Reliance', category: 'Related parties', title: 'Significant related-party transactions', evidence: '“Transactions with joint ventures and associates are disclosed in the notes.”', source: 'Notes · Related parties' },
   { id: 7, severity: 'Low', company: 'M&M', category: 'Accounting', title: 'Change in an accounting estimate', evidence: '“Useful lives of certain assets were revised during the year.”', source: 'Notes · Accounting policies' },
 ]
-
-export const CHAT = {
-  question: 'Why did Infosys operating margin move this year?',
-  answer:
-    'Margin held close to last year. Higher employee cost and subcontractor cost were largely offset by better utilisation and a favourable currency mix, according to the management discussion.',
-  sources: ['MD&A · p.84', 'Consolidated P&L · p.304', 'Notes · Employee benefits'],
-}
-
-export const REPORT_SECTIONS = [
-  { name: 'Company snapshot', done: true },
-  { name: 'Key metrics and ratios', done: true },
-  { name: 'Peer comparison', done: true },
-  { name: 'Red flags with evidence', done: false },
-  { name: 'Outlook and summary', done: false },
-]

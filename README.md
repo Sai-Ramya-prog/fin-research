@@ -54,6 +54,29 @@ npm run dev                           # http://localhost:5173
 
 The frontend talks to `http://localhost:8000` unless `VITE_API_URL` is set in `frontend/.env`.
 
+## Ask and report
+
+Open **Ask and report**, pick a session, a company that is in it (a dropdown, no typing) and a fiscal year.
+
+* **Report** - shown first. If one is saved it is displayed; otherwise it is written section by section
+  (live "N of 5 sections ready"), saved, and cached. **Regenerate** rewrites it; **Download PDF** exports it.
+  Sections: company snapshot, key metrics and ratios, peer comparison (other companies in the same session),
+  red flags, outlook and summary. Numbers come from the verified metrics table; the model writes sentences with
+  `{placeholders}` that code fills in, and every sentence must cite a page where its numbers and quote exist.
+* **Chat** - strict: answers only from the selected company's uploaded report, with page citations that open
+  the page viewer. Plain "what is X" questions are answered from the metrics table by code; questions about
+  another company are refused; anything not in the document says so.
+
+Company names are stored **upper case** everywhere. After pulling this change, once:
+
+```powershell
+cd backend
+pip install -r requirements.txt                    # adds reportlab (PDF export)
+alembic upgrade head                               # creates the reports and chat_messages tables
+python -m scripts.normalize_companies --dry-run    # shows what would change
+python -m scripts.normalize_companies              # upper-cases existing names in Postgres and Qdrant
+```
+
 ## Moving your data from Chroma Cloud to Qdrant (one time)
 
 Chroma Cloud is shutting down (writes stop on Nov 22 and reads on Dec 22, 2026, according to Chroma's published wind-down timeline; check your Chroma dashboard for your exact dates). The vectors you already paid to embed are copied across as they are, so **nothing is re-embedded and no Gemini quota is used**.

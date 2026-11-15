@@ -198,7 +198,7 @@ class TestSections:
         figures, ratios = s["tables"]
         by = {r["cells"][0]: r for r in figures["rows"] + ratios["rows"]}
         assert by["Revenue"]["cells"][3] == "+10.0%"
-        assert by["Operating margin"]["cells"][3] == "+1 pp"
+        assert by["Operating margin"]["cells"][3] == "+1.0 pp"
         assert by["Revenue growth"]["cells"][2] == "—"
         assert by["Total assets"]["warn"] and "needs review" in by["Total assets"]["cells"][1]
         assert s["note"]
@@ -222,6 +222,12 @@ class TestSections:
         theirs = {"company": "TCS", "fiscal_year": 2025, "metrics": _m("debt_to_equity", 0.9, unit="x", kind="ratio")}
         s = sec.build_peers_section("INFOSYS", 2025, mine, [theirs])
         assert "ranks 1st of 2" in s["sentences"][0]["text"]
+
+    def test_peers_tie_is_called_a_tie(self):
+        mine = _m("current_ratio", 2.0, unit="x", kind="ratio")
+        theirs = {"company": "TCS", "fiscal_year": 2025, "metrics": _m("current_ratio", 2.0, unit="x", kind="ratio")}
+        s = sec.build_peers_section("INFOSYS", 2025, mine, [theirs])
+        assert "tied for 1st of 2" in s["sentences"][0]["text"]
 
     def test_flags_section(self):
         flags = [{"title": "T", "severity": "High", "description": "d", "evidence": "e", "page": 3, "type": "x"}]

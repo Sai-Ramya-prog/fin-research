@@ -106,7 +106,7 @@ def _change(cur: dict, pri: Optional[dict]) -> str:
         return "—"
     if cur["unit"] in ("%", "x"):
         diff = cur["value"] - pri["value"]
-        return f"{diff:+.2f} {'pp' if cur['unit'] == '%' else 'x'}".replace(".00 ", " ")
+        return f"{diff:+.1f} {'pp' if cur['unit'] == '%' else 'x'}"
     if not pri["value"] or pri["value"] < 0 or cur["value"] < 0:
         return "—"
     return f"{(cur['value'] / pri['value'] - 1) * 100:+.1f}%"
@@ -176,10 +176,13 @@ def build_peers_section(company: str, fiscal_year: int, metrics: list[dict],
         mine = vals[0]
         have = [v for v in vals if v]
         if mine and len(have) >= 2 and mine.get("page"):
-            ordered = sorted((v["value"] for v in have), reverse=higher_better)
-            rank = ordered.index(mine["value"]) + 1
+            values = [v["value"] for v in have]
+            better = [x for x in values if (x > mine["value"] if higher_better else x < mine["value"])]
+            rank = len(better) + 1
+            tied = values.count(mine["value"]) > 1
+            where = f"{'tied for ' if tied else 'ranks '}{_ORDINAL.get(rank, f'{rank}th')}"
             sentences.append({
-                "text": (f"{LABELS[name]}: {company} ranks {_ORDINAL.get(rank, f'{rank}th')} of {len(have)} "
+                "text": (f"{LABELS[name]}: {company} {where} of {len(have)} "
                          f"({'higher' if higher_better else 'lower'} is better)."),
                 "page": mine["page"], "quote": None,
             })
