@@ -229,7 +229,8 @@ SYSTEM_PROMPT = """You write one section of an equity research report using ONLY
 Rules:
 - Every sentence must be supported by one of the provided pages; cite its PDF page number.
 - Do NOT type financial figures yourself. Use {metric_id} placeholders from AVAILABLE FIGURES;
-  code replaces them with verified numbers. Words like "grew" or "fell" are fine, but check the
+  code replaces them with verified numbers that ALREADY include the unit (e.g. "12,345 INR crore" or
+  "21.1%"), so never write a unit, currency or "crore" after a placeholder. Words like "grew" or "fell" are fine, but check the
   figures' direction before using them.
 - Copy a short verbatim quote from the cited page for each sentence when you can.
 - Do not use outside knowledge, do not speculate, do not give investment advice.

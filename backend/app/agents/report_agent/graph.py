@@ -97,12 +97,26 @@ def start_report(session_id: uuid.UUID, company: str, fiscal_year: int,
         return row.id, True
 
 
+def _friendly_error(status: str, raw: Optional[str]) -> Optional[str]:
+    """What the screen shows. The raw model/network error stays in the database and the logs."""
+    if status not in ("partial", "failed"):
+        return None
+    if raw and "quota" in raw.lower():
+        return "The AI model's usage limit has been reached, so the report could not be finished. Try Regenerate later."
+    if status == "partial":
+        return "Some sections could not be written because the AI model did not respond properly. Click Regenerate to try again."
+    if raw and "interrupted" in raw.lower():
+        return "Report generation was interrupted (the server may have restarted). Click Regenerate."
+    return "The report could not be generated. Click Regenerate to try again."
+
+
 def _to_dict(row: Report) -> dict[str, Any]:
     keep = {k for k, _ in SECTION_ORDER}          # reports saved earlier may hold removed sections
     sections = [x for x in (row.sections or []) if x["key"] in keep]
     return {
         "id": str(row.id), "company": row.company, "fiscal_year": row.fiscal_year,
-        "status": row.status, "sections": sections, "error": row.error, "model": row.model,
+        "status": row.status, "sections": sections, "error": _friendly_error(row.status, row.error),
+        "model": row.model,
         "progress": {"done": len(sections), "total": len(SECTION_ORDER)},
         "updated_at": _aware(row.updated_at).isoformat(),
     }

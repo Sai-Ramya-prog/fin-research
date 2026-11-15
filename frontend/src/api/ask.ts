@@ -53,7 +53,7 @@ export interface ReportState {
 }
 
 export interface Citation { pdf_page: number | null; quote: string | null; verified: boolean }
-export type ChatKind = 'question' | 'answer' | 'numeric' | 'not_found' | 'unverified' | 'other_company'
+export type ChatKind = 'question' | 'answer' | 'numeric' | 'not_found' | 'unverified' | 'other_company' | 'smalltalk'
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'

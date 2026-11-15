@@ -21,7 +21,7 @@ from sqlalchemy.pool import StaticPool
 
 from app import llm
 from app.agents.chat_agent import graph as chat
-from app.agents.chat_agent.classify import match_metric, mentions_other_company, needs_rewrite
+from app.agents.chat_agent.classify import match_metric, mentions_other_company, needs_rewrite, smalltalk
 from app.agents.report_agent import graph as rg
 from app.agents.report_agent import sections as sec
 from app.agents.report_agent.pdf import build_pdf
@@ -263,6 +263,19 @@ class TestClassify:
         assert mentions_other_company("revenue of Infosys", "INFOSYS", others) is None
         assert mentions_other_company("What about TCS-like peers?", "TCS", others) is None
 
+    @pytest.mark.parametrize("q,kind", [
+        ("hi", "greeting"), ("Hello!", "greeting"), ("hiii", "greeting"), ("Good morning", "greeting"),
+        ("how are you?", "how_are_you"), ("thanks", "thanks"), ("Thank you!", "thanks"), ("ok thanks", "thanks"),
+        ("bye", "bye"), ("what can you do?", "about"), ("help", "about"), ("who are you", "about")])
+    def test_smalltalk(self, q, kind):
+        assert smalltalk(q) == kind
+
+    @pytest.mark.parametrize("q", [
+        "hi what is the revenue", "What is the revenue?", "hello TCS", "thanks, but why did margin fall",
+        "tell me a joke about the company and its many subsidiaries today", ""])
+    def test_not_smalltalk(self, q):
+        assert smalltalk(q) is None
+
     def test_needs_rewrite(self):
         assert not needs_rewrite("What about it?", has_history=False)
         assert needs_rewrite("and last year?", has_history=True)
@@ -362,7 +375,8 @@ class TestReportAgent:
         with patch.object(llm, "call_structured", side_effect=RuntimeError("boom")):
             assert rg.run_report(rid)
         rep = rg.get_report(world.session_id, "INFOSYS", 2025)
-        assert rep["status"] == "partial" and "boom" in rep["error"]
+        assert rep["status"] == "partial" and "Regenerate" in rep["error"]
+        assert "boom" not in rep["error"]               # raw errors never reach the screen
         assert {s["key"]: s["status"] for s in rep["sections"]} == {
             "snapshot": "unavailable", "outlook": "unavailable"}
 
@@ -373,6 +387,7 @@ class TestReportAgent:
         assert m.call_count == 1
         rep = rg.get_report(world.session_id, "INFOSYS", 2025)
         assert rep["status"] == "partial" and "quota" in rep["sections"][-1]["note"].lower()
+        assert "usage limit" in rep["error"] and "QuotaExhausted" not in rep["error"]
 
     def test_not_found_and_not_ready(self, env, world):
         with pytest.raises(rg.NotFound):
@@ -441,6 +456,13 @@ class TestChatAgent:
     def test_unreviewed_metric_carries_a_warning(self, world):
         msg = chat.ask(world.session_id, "INFOSYS", 2025, "total assets")
         assert "automatic consistency check" in msg["content"]
+
+    def test_greeting_gets_a_friendly_reply_without_the_model(self, world):
+        with patch.object(llm, "call_structured", side_effect=AssertionError("no LLM call expected")):
+            msg = chat.ask(world.session_id, "INFOSYS", 2025, "hi")
+        assert msg["kind"] == "smalltalk" and "INFOSYS" in msg["content"] and msg["citations"] == []
+        hist = chat.history(world.session_id, "INFOSYS", 2025)
+        assert [(m["role"], m["kind"]) for m in hist] == [("user", "question"), ("assistant", "smalltalk")]
 
     def test_other_company_is_refused_without_the_model(self, world):
         with patch.object(llm, "call_structured", side_effect=AssertionError("no LLM call expected")):

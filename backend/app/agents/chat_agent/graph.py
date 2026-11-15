@@ -34,7 +34,7 @@ from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
 from app import llm, retrieval
-from app.agents.chat_agent.classify import match_metric, mentions_other_company, needs_rewrite
+from app.agents.chat_agent.classify import match_metric, mentions_other_company, needs_rewrite, smalltalk
 from app.agents.report_agent import data
 from app.agents.report_agent.graph import NotFound, NotReady
 from app.agents.report_agent.sections import LABELS
@@ -56,6 +56,16 @@ WEAK_HITS = 3
 NOT_FOUND_TEXT = "This is not found in the uploaded document for this company."
 OTHER_COMPANY_TEXT = ("That question is about {other}, which is outside the selected company ({company}). "
                       "Switch the company at the top to ask about it.")
+
+SMALLTALK_REPLIES = {
+    "greeting": ("Hi! I can answer questions about {company}'s FY{fy} report, such as revenue, margins, debt, "
+                 "risks or the outlook. What would you like to know?"),
+    "how_are_you": "I'm doing well, thanks! Ask me anything about {company}'s FY{fy} report.",
+    "thanks": "You're welcome! Ask me anything else about the report.",
+    "bye": "Goodbye! Come back any time you have questions about the report.",
+    "about": ("I'm the research assistant for this report. I answer questions about {company} FY{fy} using only "
+              "the uploaded document, and I cite the page. I can't help with topics outside it."),
+}
 
 
 # ── model shapes ──────────────────────────────────────────────────────────────
@@ -99,7 +109,7 @@ class ChatState(TypedDict, total=False):
     question: str
     standalone: str
     history: List[dict]
-    route: str                      # other | numeric | retrieve
+    route: str                      # smalltalk | other | numeric | retrieve
     pages: dict                     # {pdf_page: text}
     metrics: List[dict]
     draft: Optional[Answer]
@@ -131,6 +141,12 @@ def _node_prepare(state: ChatState) -> ChatState:
     with session_scope() as db:
         others = data.company_names(db, state["session_id"])
         metrics = data.load_metrics(db, state["doc_id"], fy)
+
+    chat_kind = smalltalk(question)
+    if chat_kind:                                  # greetings etc.: no search, no model call
+        return {**state, "history": history, "metrics": metrics, "route": "smalltalk",
+                "result": {"kind": "smalltalk", "citations": [],
+                           "content": SMALLTALK_REPLIES[chat_kind].format(company=company, fy=fy)}}
 
     other = mentions_other_company(question, company, others)
     if other:
@@ -262,7 +278,7 @@ def _after_verify(state: ChatState) -> Literal["retry", "save"]:
     return "save" if state.get("result") else "retry"
 
 
-def _route_prepare(state: ChatState) -> Literal["other", "numeric", "retrieve"]:
+def _route_prepare(state: ChatState) -> Literal["other", "numeric", "smalltalk", "retrieve"]:
     return state["route"]  # type: ignore[return-value]
 
 
@@ -291,7 +307,7 @@ def _build_graph() -> StateGraph:
                      ("verify", _node_verify), ("save", _node_save)):
         g.add_node(name, fn)
     g.set_entry_point("prepare")
-    g.add_conditional_edges("prepare", _route_prepare, {"other": "save", "numeric": "save", "retrieve": "retrieve"})
+    g.add_conditional_edges("prepare", _route_prepare, {"other": "save", "numeric": "save", "smalltalk": "save", "retrieve": "retrieve"})
     g.add_edge("retrieve", "answer")
     g.add_edge("answer", "verify")
     g.add_conditional_edges("verify", _after_verify, {"retry": "answer", "save": "save"})

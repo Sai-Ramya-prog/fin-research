@@ -97,3 +97,26 @@ def needs_rewrite(question: str, has_history: bool) -> bool:
         return False
     words = _words(question)
     return len(words) <= 7 or bool(set(words) & _FOLLOW_UP)
+
+
+# ── small talk ────────────────────────────────────────────────────────────────
+_SMALLTALK = [
+    ("greeting", r"(hi+|hello+|hey+|hola|namaste|yo|good (morning|afternoon|evening)|greetings)( there| team| bot)?"),
+    ("how_are_you", r"(how are you|how r u|how are you doing|how is it going|hows it going|whats up|sup)"),
+    ("thanks", r"((ok(ay)? )?(thanks|thank you|thx|ty|thanks a lot|many thanks)( so much)?|great|nice|cool|ok(ay)?|got it|perfect)"),
+    ("bye", r"(bye|goodbye|see you|see ya|good night|cya)"),
+    ("about", r"(who are you|what are you|what can you do|what do you do|help|help me|what can i ask|how do you work|how does this work)"),
+]
+
+
+def smalltalk(question: str) -> Optional[str]:
+    """Kind of small talk when the WHOLE message is a greeting / thanks / goodbye /
+    "what can you do". Anything that also asks about the report returns None."""
+    q = re.sub(r"[^a-z0-9' ]+", " ", question.lower()).strip()
+    q = re.sub(r"\s+", " ", q).replace("'", "")
+    if not q or len(q.split()) > 6:
+        return None
+    for kind, pattern in _SMALLTALK:
+        if re.fullmatch(pattern, q):
+            return kind
+    return None
