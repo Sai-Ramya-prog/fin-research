@@ -166,10 +166,11 @@ def chat_ask(session_id: uuid.UUID, body: ChatIn, db: DBSession = Depends(_db)) 
     except (NotFound, NotReady) as exc:
         raise _http(exc)
     except QuotaExhaustedError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "The AI model's daily usage limit has been reached. Please try again later.")
     except Exception as exc:  # model/network failure: nothing was saved
         logger.exception("chat failed: %s", exc)
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The model could not answer right now. Try again.")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The AI model couldn't answer right now. Please try again in a moment.")
 
 
 @router.delete("/{session_id}/chat", status_code=status.HTTP_204_NO_CONTENT, summary="Clear the chat")

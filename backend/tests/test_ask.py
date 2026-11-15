@@ -479,6 +479,12 @@ class TestChatAgent:
         with answer_with(chat.Answer(found=False)):
             msg = chat.ask(world.session_id, "INFOSYS", 2025, "Who is the CEO?")
         assert msg["kind"] == "not_found" and msg["citations"] == []
+        assert "INFOSYS" in msg["content"] and "won't guess" in msg["content"]
+
+    def test_off_topic_gets_a_polite_redirect(self, world, vectors):
+        with answer_with(chat.Answer(found=False, off_topic=True)):
+            msg = chat.ask(world.session_id, "INFOSYS", 2025, "Tell me a joke")
+        assert msg["kind"] == "off_topic" and "outside what I can help with" in msg["content"]
 
     def test_not_found_when_nothing_retrieved(self, world):
         with patch("app.agents.chat_agent.graph.retrieval.search", return_value=[]), \

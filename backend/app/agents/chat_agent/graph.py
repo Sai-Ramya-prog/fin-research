@@ -53,9 +53,12 @@ PAGE_CHARS = 6000
 WEAK_SCORE = 0.45            # best cosine score below this = "weak retrieval"
 WEAK_HITS = 3
 
-NOT_FOUND_TEXT = "This is not found in the uploaded document for this company."
-OTHER_COMPANY_TEXT = ("That question is about {other}, which is outside the selected company ({company}). "
-                      "Switch the company at the top to ask about it.")
+NOT_FOUND_TEXT = ("I couldn't find that in {company}'s FY{fy} report, so I won't guess. Try rephrasing, or ask "
+                  "about something the report covers, like revenue, profit, debt, cash flow, risks or the outlook.")
+OFF_TOPIC_TEXT = ("That's outside what I can help with. I'm here to answer questions about {company}'s FY{fy} "
+                  "report, such as revenue, margins, debt, risks or the outlook.")
+OTHER_COMPANY_TEXT = ("That sounds like a question about {other}. I'm set to {company} right now, so please "
+                      "switch the company at the top and ask again.")
 
 SMALLTALK_REPLIES = {
     "greeting": ("Hi! I can answer questions about {company}'s FY{fy} report, such as revenue, margins, debt, "
@@ -81,6 +84,10 @@ class Cite(BaseModel):
 
 class Answer(BaseModel):
     found: bool = Field(description="True only if the pages contain what is needed to answer.")
+    off_topic: bool = Field(False, description=(
+        "True when the question has nothing to do with this company's business, finances or report "
+        "(jokes, weather, general knowledge, coding help, personal chat). False when it is a finance "
+        "or business question, even if the pages do not contain the answer."))
     answer: str = Field("", description="Concise answer in plain sentences. Empty when found is false.")
     citations: List[Cite] = Field(default_factory=list)
 
@@ -93,6 +100,8 @@ ANSWER_SYSTEM = """You answer questions about ONE company's annual report using 
 
 Rules:
 - If the pages do not contain what is needed, set found=false. Never use outside knowledge.
+- If the question is not about this company's business or finances at all (jokes, weather, general knowledge,
+  coding, personal chat), set found=false and off_topic=true.
 - Copy numbers exactly as printed; never calculate, convert or round them.
 - Every answer needs at least one citation: the PDF page and a short verbatim quote from it.
 - Be concise: a few sentences. No investment advice.
@@ -262,8 +271,12 @@ def _check(state: ChatState) -> tuple[list[dict], str]:
 
 def _node_verify(state: ChatState) -> ChatState:
     draft: Answer = state["draft"]
+    if not draft.found and draft.off_topic:
+        return {**state, "result": {"kind": "off_topic", "citations": [], "content": OFF_TOPIC_TEXT.format(
+            company=state["company"], fy=state["fiscal_year"])}}
     if not draft.found or not draft.answer.strip():
-        return {**state, "result": {"kind": "not_found", "content": NOT_FOUND_TEXT, "citations": []}}
+        return {**state, "result": {"kind": "not_found", "citations": [], "content": NOT_FOUND_TEXT.format(
+            company=state["company"], fy=state["fiscal_year"])}}
     good, problem = _check(state)
     if not problem:
         return {**state, "result": {"kind": "answer", "content": draft.answer.strip(), "citations": good}}

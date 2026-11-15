@@ -73,8 +73,8 @@ export function ChatPanel({ sessionId, company, year, docId }: Props) {
           <div className="q" key={m.id}>{m.content}</div>
         ) : (
           <div className={`a kind-${m.kind}`} key={m.id}>
-            {m.kind === 'unverified' && <div className="badge-warn">Unverified: the quotes could not be matched to the pages. Check the source before relying on this.</div>}
-            {m.kind === 'not_found' && <div className="badge-muted">Not found in this document</div>}
+            {m.kind === 'unverified' && <div className="badge-warn">I couldn't confirm this against the report's pages, so please check the source page before relying on it.</div>}
+            {m.kind === 'not_found' && <div className="badge-muted">Not in this report</div>}
             {m.kind === 'other_company' && <div className="badge-muted">Different company</div>}
             <p>{m.content}</p>
             {m.citations.length > 0 && (
