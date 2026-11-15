@@ -3,7 +3,7 @@ app/agents/report_agent/graph.py
 ───────────────────────────────────────────────────────────────────────────────
 LangGraph wiring for the Report Agent.
 
-  [load] → [snapshot] → [metrics] → [peers] → [red_flags] → [outlook] → [finish]
+  [load] → [snapshot] → [outlook] → [finish]
                 (any hard error → [fail])
 
 Each section node saves its section to ``reports.sections`` the moment it is
@@ -31,10 +31,7 @@ from app import llm
 from app.agents.report_agent import data
 from app.agents.report_agent.sections import (
     SECTION_ORDER,
-    build_flags_section,
     build_grounded_section,
-    build_metrics_section,
-    build_peers_section,
     unavailable,
 )
 from app.company import normalize_company
@@ -101,7 +98,8 @@ def start_report(session_id: uuid.UUID, company: str, fiscal_year: int,
 
 
 def _to_dict(row: Report) -> dict[str, Any]:
-    sections = list(row.sections or [])
+    keep = {k for k, _ in SECTION_ORDER}          # reports saved earlier may hold removed sections
+    sections = [x for x in (row.sections or []) if x["key"] in keep]
     return {
         "id": str(row.id), "company": row.company, "fiscal_year": row.fiscal_year,
         "status": row.status, "sections": sections, "error": row.error, "model": row.model,
@@ -132,10 +130,7 @@ class ReportState(TypedDict, total=False):
     company: str
     fiscal_year: int
     doc_id: uuid.UUID
-    red_flag_status: Optional[str]
     metrics: List[dict]
-    flags: List[dict]
-    peers: List[dict]
     errors: List[str]
     quota_hit: bool
     error: Optional[str]
@@ -157,11 +152,8 @@ def _node_load(state: ReportState) -> ReportState:
             doc = db.get(Document, state["doc_id"])
             if doc is None:
                 return {**state, "error": "document not found"}
-            metrics = data.load_metrics(db, doc.id, doc.fiscal_year)
-            flags = data.load_flags(db, doc.id)
-            peers = data.load_peers(db, state["session_id"], state["company"], state["fiscal_year"])
-            return {**state, "metrics": metrics, "flags": flags, "peers": peers,
-                    "red_flag_status": doc.red_flag_status, "errors": [], "quota_hit": False}
+            metrics = data.load_metrics(db, doc.id, doc.fiscal_year)   # verified figures for the {placeholders}
+            return {**state, "metrics": metrics, "errors": [], "quota_hit": False}
     except Exception as exc:
         logger.exception("[report:load] FAILED: %s", exc)
         return {**state, "error": f"load failed: {exc}"}
@@ -214,28 +206,6 @@ def _llm_section(key: str):
     return node
 
 
-def _node_metrics(state: ReportState) -> ReportState:
-    if state.get("error"):
-        return state
-    _save_section(state["report_id"], build_metrics_section(state["metrics"]))
-    return state
-
-
-def _node_peers(state: ReportState) -> ReportState:
-    if state.get("error"):
-        return state
-    _save_section(state["report_id"], build_peers_section(
-        state["company"], state["fiscal_year"], state["metrics"], state["peers"]))
-    return state
-
-
-def _node_flags(state: ReportState) -> ReportState:
-    if state.get("error"):
-        return state
-    _save_section(state["report_id"], build_flags_section(state["flags"], state.get("red_flag_status")))
-    return state
-
-
 def _node_finish(state: ReportState) -> ReportState:
     errors = state.get("errors", [])
     with session_scope() as db:
@@ -271,16 +241,12 @@ def _build_graph() -> StateGraph:
     g = StateGraph(ReportState)
     g.add_node("load", _node_load)
     g.add_node("snapshot", _llm_section("snapshot"))
-    g.add_node("metrics", _node_metrics)
-    g.add_node("peers", _node_peers)
-    g.add_node("red_flags", _node_flags)
     g.add_node("outlook", _llm_section("outlook"))
     g.add_node("finish", _node_finish)
     g.add_node("fail", _node_fail)
     g.set_entry_point("load")
     g.add_conditional_edges("load", _route, {"continue": "snapshot", "fail": "fail"})
-    for a, b in (("snapshot", "metrics"), ("metrics", "peers"), ("peers", "red_flags"),
-                 ("red_flags", "outlook"), ("outlook", "finish")):
+    for a, b in (("snapshot", "outlook"), ("outlook", "finish")):
         g.add_edge(a, b)
     g.add_edge("finish", END)
     g.add_edge("fail", END)

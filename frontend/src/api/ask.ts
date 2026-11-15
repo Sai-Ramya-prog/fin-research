@@ -66,9 +66,6 @@ export interface ChatMessage {
 /** Section order and names, so the progress list can show sections that are not written yet. */
 export const SECTION_NAMES: [string, string][] = [
   ['snapshot', 'Company snapshot'],
-  ['metrics', 'Key metrics and ratios'],
-  ['peers', 'Peer comparison'],
-  ['red_flags', 'Red flags'],
   ['outlook', 'Outlook and summary'],
 ]
 

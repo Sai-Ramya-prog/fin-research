@@ -1,11 +1,10 @@
 """
 The five report sections.
 
-  1 snapshot   LLM writes, every sentence cites a page          (grounded)
-  2 metrics    tables assembled from the metrics table          (no LLM)
-  3 peers      ratio comparison with the session's other cos.   (no LLM)
-  4 red_flags  rows from the red_flags table                    (no LLM)
-  5 outlook    LLM writes from MD&A text + verified metrics     (grounded)
+  snapshot   LLM writes, every sentence cites a page          (in the report)
+  outlook    LLM writes from MD&A text + verified metrics     (in the report)
+  metrics / peers / red_flags builders exist but are not part of the report
+  (those have their own pages).
 
 A section is a plain dict (stored as JSON in ``reports.sections``):
 
@@ -38,14 +37,14 @@ from app.grounding import (
 
 logger = logging.getLogger(__name__)
 
+# The report shows only the two written sections: metrics, peers and red flags
+# already have their own pages. The builders for those three stay below, unused.
 SECTION_ORDER = [
     ("snapshot", "Company snapshot"),
-    ("metrics", "Key metrics and ratios"),
-    ("peers", "Peer comparison"),
-    ("red_flags", "Red flags"),
     ("outlook", "Outlook and summary"),
 ]
-TITLES = dict(SECTION_ORDER)
+TITLES = {**dict(SECTION_ORDER), "metrics": "Key metrics and ratios",
+          "peers": "Peer comparison", "red_flags": "Red flags"}
 
 LABELS = {
     "revenue": "Revenue", "gross_profit": "Gross profit", "operating_profit": "Operating profit",

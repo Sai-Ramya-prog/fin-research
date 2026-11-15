@@ -293,19 +293,34 @@ def no_vectors():
 
 
 class TestReportAgent:
-    def test_full_run_saves_five_ordered_sections(self, world, no_vectors):
+    def test_full_run_saves_the_two_written_sections(self, world, no_vectors):
         rid, run = rg.start_report(world.session_id, "infosys", 2025)
         assert run
         with fake_writer():
             assert rg.run_report(rid)
         rep = rg.get_report(world.session_id, "Infosys", 2025)
         assert rep["status"] == "ready" and rep["company"] == "INFOSYS"
-        assert [s["key"] for s in rep["sections"]] == ["snapshot", "metrics", "peers", "red_flags", "outlook"]
-        assert rep["progress"] == {"done": 5, "total": 5}
-        snap = rep["sections"][0]
-        assert snap["sentences"][0]["text"] == "Revenue was 153,670 INR crore."
-        assert rep["sections"][2]["tables"]          # TCS is in the session -> a real comparison
-        assert rep["sections"][3]["flags"][0]["title"] == "Margin fell"
+        assert [s["key"] for s in rep["sections"]] == ["snapshot", "outlook"]
+        assert rep["progress"] == {"done": 2, "total": 2}
+        assert rep["sections"][0]["sentences"][0]["text"] == "Revenue was 153,670 INR crore."
+
+    def test_metrics_peers_and_red_flags_are_not_in_the_report(self, world, no_vectors):
+        rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
+        with fake_writer():
+            rg.run_report(rid)
+        keys = {s["key"] for s in rg.get_report(world.session_id, "INFOSYS", 2025)["sections"]}
+        assert keys.isdisjoint({"metrics", "peers", "red_flags"})
+
+    def test_old_saved_reports_hide_removed_sections(self, env, world):
+        rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
+        with env.scope() as s:
+            row = s.get(Report, rid)
+            row.status = "ready"
+            row.sections = [{"key": k, "title": k, "status": "ready", "sentences": [], "tables": [],
+                             "flags": [], "note": None} for k in ("snapshot", "metrics", "peers", "red_flags", "outlook")]
+        rep = rg.get_report(world.session_id, "INFOSYS", 2025)
+        assert [s["key"] for s in rep["sections"]] == ["snapshot", "outlook"]
+        assert build_pdf(rep).startswith(b"%PDF")
 
     def test_progress_is_saved_section_by_section(self, world, no_vectors):
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
@@ -317,7 +332,7 @@ class TestReportAgent:
         real = rg._save_section
         with fake_writer(), patch.object(rg, "_save_section", side_effect=spy):
             rg.run_report(rid)
-        assert seen == ["snapshot", "metrics", "peers", "red_flags", "outlook"]
+        assert seen == ["snapshot", "outlook"]
 
     def test_second_start_uses_cache_unless_regenerate(self, world, no_vectors):
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
@@ -342,15 +357,14 @@ class TestReportAgent:
         assert rep["status"] == "ready"      # nothing crashed; the section just says why
         assert rep["sections"][0]["status"] == "unavailable"
 
-    def test_model_failure_gives_partial_report_and_keeps_other_sections(self, world, no_vectors):
+    def test_model_failure_gives_partial_report(self, world, no_vectors):
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
         with patch.object(llm, "call_structured", side_effect=RuntimeError("boom")):
             assert rg.run_report(rid)
         rep = rg.get_report(world.session_id, "INFOSYS", 2025)
         assert rep["status"] == "partial" and "boom" in rep["error"]
         assert {s["key"]: s["status"] for s in rep["sections"]} == {
-            "snapshot": "unavailable", "metrics": "ready", "peers": "ready",
-            "red_flags": "ready", "outlook": "unavailable"}
+            "snapshot": "unavailable", "outlook": "unavailable"}
 
     def test_quota_exhausted_skips_second_llm_call(self, world, no_vectors):
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
@@ -555,7 +569,7 @@ class TestApi:
             r = client.post(f"{base}/report/generate", params=q)       # background task runs before the response returns
         assert r.status_code == 202
         rep = client.get(f"{base}/report", params=q).json()["report"]
-        assert rep["status"] == "ready" and rep["progress"]["done"] == 5
+        assert rep["status"] == "ready" and rep["progress"]["done"] == 2
 
         pdf = client.get(f"{base}/report/pdf", params=q)
         assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
