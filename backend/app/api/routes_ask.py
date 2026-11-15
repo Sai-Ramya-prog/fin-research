@@ -141,7 +141,7 @@ def generate_report(session_id: uuid.UUID, background_tasks: BackgroundTasks,
 def download_report_pdf(session_id: uuid.UUID, company: str = Query(..., min_length=1),
                         fiscal_year: int = Query(...), db: DBSession = Depends(_db)) -> Response:
     _require_session(db, session_id)
-    rep = report_graph.get_report(session_id, company, fiscal_year)
+    rep = report_graph.get_report_for_pdf(session_id, company, fiscal_year)
     if rep is None or rep["status"] not in ("ready", "partial"):
         raise HTTPException(status.HTTP_409_CONFLICT, "The report is not ready yet.")
     name = re.sub(r"[^A-Za-z0-9]+", "_", rep["company"]).strip("_") or "report"

@@ -153,7 +153,7 @@ export function AskPage() {
                     ? 'The report could not be completed.'
                     : report.status === 'partial'
                       ? 'Some sections could not be written. Regenerate to try again.'
-                      : 'Every statement below is tied to a page of the uploaded report.'}
+                      : 'Every statement below is tied to a page of the uploaded report. The PDF also includes key metrics, peer comparison and red flags.'}
                 </p>}
           </div>
           <div className="report-actions">

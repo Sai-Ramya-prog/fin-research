@@ -1,6 +1,13 @@
 """
-PDF export for a saved report (ReportLab, pure Python: no system libraries,
-works on Windows). ``build_pdf(report) -> bytes``.
+PDF export for a report (ReportLab, pure Python: no system libraries, works on Windows).
+
+Layout, top to bottom:
+  banner          company, fiscal year, date
+  at a glance     up to six headline numbers with year-on-year change
+  sections        snapshot, key metrics, peer comparison, red flags, outlook
+  footer          page number + "not investment advice"
+
+``build_pdf(report) -> bytes`` takes the dict from ``graph.get_report_for_pdf``.
 """
 
 from __future__ import annotations
@@ -15,6 +22,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
+    HRFlowable,
     KeepTogether,
     Paragraph,
     SimpleDocTemplate,
@@ -23,35 +31,89 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-_INK = colors.HexColor("#1f2933")
-_MUTED = colors.HexColor("#616e7c")
-_RULE = colors.HexColor("#cbd2d9")
-_HEAD_BG = colors.HexColor("#eef2f6")
-_SEVERITY = {"High": "#b42318", "Medium": "#b54708", "Low": "#475467"}
+_INK = colors.HexColor("#1b2733")
+_MUTED = colors.HexColor("#5f6b7a")
+_RULE = colors.HexColor("#d5dbe2")
+_BRAND = colors.HexColor("#1d7a57")
+_BRAND_SOFT = colors.HexColor("#e7f3ed")
+_ZEBRA = colors.HexColor("#f6f8fa")
+_UP, _DOWN = "#1d7a57", "#b42318"
+_SEVERITY = {"High": "#b42318", "Medium": "#b54708", "Low": "#2f5d9f"}
+_MARGIN = 18 * mm
+_WIDTH = A4[0] - 2 * _MARGIN
 
 
 def _styles() -> dict[str, ParagraphStyle]:
-    base = getSampleStyleSheet()
+    base = getSampleStyleSheet()["Normal"]
+
+    def mk(name: str, **kw: Any) -> ParagraphStyle:
+        kw.setdefault("textColor", _INK)
+        return ParagraphStyle(name, parent=base, **kw)
+
     return {
-        "title": ParagraphStyle("t", parent=base["Title"], fontSize=20, leading=24, textColor=_INK, alignment=0),
-        "sub": ParagraphStyle("s", parent=base["Normal"], fontSize=10, textColor=_MUTED, spaceAfter=10),
-        "h": ParagraphStyle("h", parent=base["Heading2"], fontSize=13, textColor=_INK, spaceBefore=14, spaceAfter=4),
-        "body": ParagraphStyle("b", parent=base["Normal"], fontSize=9.5, leading=13.5, textColor=_INK, spaceAfter=4),
-        "note": ParagraphStyle("n", parent=base["Normal"], fontSize=8.5, leading=11, textColor=_MUTED,
-                               fontName="Helvetica-Oblique", spaceAfter=4),
-        "cell": ParagraphStyle("c", parent=base["Normal"], fontSize=8.5, leading=11, textColor=_INK),
-        "cellh": ParagraphStyle("ch", parent=base["Normal"], fontSize=8.5, leading=11, textColor=_INK,
-                                fontName="Helvetica-Bold"),
-        "tt": ParagraphStyle("tt", parent=base["Normal"], fontSize=9.5, fontName="Helvetica-Bold",
-                             textColor=_INK, spaceBefore=6, spaceAfter=3),
+        "banner_t": mk("bt", fontName="Helvetica-Bold", fontSize=21, leading=25, textColor=colors.white),
+        "banner_s": mk("bs", fontSize=9.5, leading=13, textColor=colors.HexColor("#d7efe4")),
+        "h": mk("h", fontName="Helvetica-Bold", fontSize=13, leading=16, textColor=_BRAND, spaceBefore=16, spaceAfter=3),
+        "body": mk("b", fontSize=9.6, leading=14, spaceAfter=5),
+        "src": mk("src", fontSize=8, leading=11, textColor=_MUTED, fontName="Helvetica-Oblique", spaceAfter=5, leftIndent=8),
+        "note": mk("n", fontSize=8.3, leading=11.5, textColor=_MUTED, fontName="Helvetica-Oblique", spaceBefore=3, spaceAfter=4),
+        "cell": mk("c", fontSize=8.6, leading=11),
+        "cellh": mk("ch", fontSize=8.4, leading=11, fontName="Helvetica-Bold", textColor=_BRAND),
+        "tt": mk("tt", fontName="Helvetica-Bold", fontSize=9.6, spaceBefore=8, spaceAfter=3),
+        "kpi_l": mk("kl", fontSize=7.8, leading=10, textColor=_MUTED),
+        "kpi_v": mk("kv", fontName="Helvetica-Bold", fontSize=12.5, leading=15),
+        "kpi_c": mk("kc", fontSize=8, leading=10),
     }
 
 
-def _p(text: str, style: ParagraphStyle) -> Paragraph:
+def _p(text: Any, style: ParagraphStyle) -> Paragraph:
     return Paragraph(escape(str(text)), style)
 
 
-def _table(spec: dict[str, Any], st: dict[str, ParagraphStyle], width: float) -> list:
+def _page_ref(page: Any) -> str:
+    return f" <font color='#5f6b7a' size='7.5'>[p. {page}]</font>" if page else ""
+
+
+def _banner(report: dict[str, Any], st: dict[str, ParagraphStyle]) -> Table:
+    left = [_p(report["company"], st["banner_t"]),
+            _p(f"Fiscal year {report['fiscal_year']} research report", st["banner_s"])]
+    right = _p(datetime.now().strftime("%d %b %Y"), st["banner_s"])
+    t = Table([[left, right]], colWidths=[_WIDTH - 32 * mm, 32 * mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), _BRAND), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 13), ("BOTTOMPADDING", (0, 0), (-1, -1), 13),
+    ]))
+    return t
+
+
+def _glance(highlights: list[dict[str, str]], st: dict[str, ParagraphStyle]) -> list:
+    """Headline numbers as tiles, three per row."""
+    if not highlights:
+        return []
+    tiles: list = []
+    for h in highlights:
+        change = h.get("change") or "—"
+        color = _UP if change.startswith("+") else _DOWN if change.startswith("-") else "#5f6b7a"
+        label = "vs last year" if change != "—" else ""
+        tiles.append([_p(h["label"], st["kpi_l"]), _p(h["value"], st["kpi_v"]),
+                      Paragraph(f"<font color='{color}'><b>{escape(change)}</b></font> "
+                                f"<font color='#5f6b7a'>{label}</font>", st["kpi_c"])])
+    while len(tiles) % 3:
+        tiles.append("")
+    rows = [tiles[i:i + 3] for i in range(0, len(tiles), 3)]
+    t = Table(rows, colWidths=[_WIDTH / 3] * 3)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), _BRAND_SOFT),
+        ("LINEAFTER", (0, 0), (-2, -1), 3, colors.white), ("LINEBELOW", (0, 0), (-1, -2), 3, colors.white),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return [Spacer(1, 10), _p("At a glance", st["tt"]), t]
+
+
+def _table(spec: dict[str, Any], st: dict[str, ParagraphStyle]) -> list:
     cols = list(spec["columns"])
     with_page = cols[-1] == "Change"                  # metrics tables carry the source page
     if with_page:
@@ -60,40 +122,55 @@ def _table(spec: dict[str, Any], st: dict[str, ParagraphStyle], width: float) ->
     for r in spec["rows"]:
         cells = list(r["cells"]) + ([str(r["page"]) if r.get("page") else "—"] if with_page else [])
         data.append([_p(c, st["cell"]) for c in cells])
-    first = 0.30 * width if len(cols) > 2 else 0.5 * width
-    rest = (width - first) / max(1, len(cols) - 1)
+    first = 0.30 * _WIDTH if len(cols) > 2 else 0.5 * _WIDTH
+    rest = (_WIDTH - first) / max(1, len(cols) - 1)
     t = Table(data, colWidths=[first] + [rest] * (len(cols) - 1), repeatRows=1)
     style = [
-        ("BACKGROUND", (0, 0), (-1, 0), _HEAD_BG),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.6, _RULE),
+        ("BACKGROUND", (0, 0), (-1, 0), _BRAND_SOFT),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.8, _BRAND),
         ("LINEBELOW", (0, 1), (-1, -1), 0.25, _RULE),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
     ]
     for i, r in enumerate(spec["rows"], start=1):
+        if i % 2 == 0:
+            style.append(("BACKGROUND", (0, i), (-1, i), _ZEBRA))
         if r.get("warn"):
             style.append(("TEXTCOLOR", (0, i), (-1, i), colors.HexColor("#b54708")))
     t.setStyle(TableStyle(style))
-    return [_p(spec["title"], st["tt"]), t, Spacer(1, 4)]
+    return [KeepTogether([_p(spec["title"], st["tt"]), t]), Spacer(1, 4)]
 
 
-def _section_flow(sec: dict[str, Any], st: dict[str, ParagraphStyle], width: float) -> list:
-    flow: list = [_p(sec["title"], st["h"])]
+def _flag(f: dict[str, Any], st: dict[str, ParagraphStyle]) -> KeepTogether:
+    color = _SEVERITY.get(f["severity"], "#475467")
+    body = [Paragraph(f"<font color='{color}'><b>{escape(f['severity']).upper()}</b></font> &nbsp;"
+                      f"<b>{escape(f['title'])}</b>{_page_ref(f.get('page'))}", st["body"]),
+            _p(f["description"], st["body"])]
+    if f.get("evidence"):
+        body.append(_p(f"Evidence: {f['evidence']}", st["src"]))
+    t = Table([["", body]], colWidths=[3, _WIDTH - 3])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), colors.HexColor(color)),
+        ("BOX", (0, 0), (-1, -1), 0.4, _RULE),
+        ("LEFTPADDING", (1, 0), (1, 0), 9), ("TOPPADDING", (1, 0), (1, 0), 6), ("BOTTOMPADDING", (1, 0), (1, 0), 3),
+        ("LEFTPADDING", (0, 0), (0, 0), 0), ("RIGHTPADDING", (0, 0), (0, 0), 0),
+    ]))
+    return KeepTogether([t, Spacer(1, 5)])
+
+
+def _section(sec: dict[str, Any], st: dict[str, ParagraphStyle]) -> list:
+    flow: list = [_p(sec["title"], st["h"]), HRFlowable(width="100%", thickness=0.6, color=_RULE, spaceAfter=5)]
     if sec.get("status") != "ready":
         flow.append(_p(sec.get("note") or "This section is not available.", st["note"]))
         return flow
     for s in sec.get("sentences", []):
-        flow.append(Paragraph(f"{escape(s['text'])} <font color='#616e7c' size='8'>[p. {s['page']}]</font>", st["body"]))
+        flow.append(Paragraph(f"{escape(s['text'])}{_page_ref(s.get('page'))}", st["body"]))
+        if s.get("quote"):
+            flow.append(_p(f"“{s['quote']}”", st["src"]))
     for t in sec.get("tables", []):
-        flow.extend(_table(t, st, width))
+        flow.extend(_table(t, st))
     for f in sec.get("flags", []):
-        color = _SEVERITY.get(f["severity"], "#475467")
-        head = (f"<font color='{color}'><b>{escape(f['severity'])}</b></font> &nbsp;<b>{escape(f['title'])}</b>"
-                + (f" <font color='#616e7c' size='8'>[p. {f['page']}]</font>" if f.get("page") else ""))
-        block = [Paragraph(head, st["body"]), _p(f["description"], st["body"])]
-        if f.get("evidence"):
-            block.append(_p(f"Evidence: {f['evidence']}", st["note"]))
-        flow.append(KeepTogether(block + [Spacer(1, 3)]))
+        flow.append(_flag(f, st))
     if sec.get("note"):
         flow.append(_p(sec["note"], st["note"]))
     return flow
@@ -101,27 +178,27 @@ def _section_flow(sec: dict[str, Any], st: dict[str, ParagraphStyle], width: flo
 
 def _footer(canvas, doc) -> None:                 # pragma: no cover - drawing only
     canvas.saveState()
+    canvas.setStrokeColor(_RULE)
+    canvas.line(_MARGIN, 14 * mm, A4[0] - _MARGIN, 14 * mm)
     canvas.setFont("Helvetica", 7.5)
     canvas.setFillColor(_MUTED)
-    canvas.drawString(18 * mm, 10 * mm, "Generated from the uploaded documents. Not investment advice.")
-    canvas.drawRightString(A4[0] - 18 * mm, 10 * mm, f"Page {doc.page}")
+    canvas.drawString(_MARGIN, 10 * mm, "Generated from the uploaded annual report. Not investment advice. [p. N] = PDF page of the source.")
+    canvas.drawRightString(A4[0] - _MARGIN, 10 * mm, f"Page {doc.page}")
     canvas.restoreState()
 
 
 def build_pdf(report: dict[str, Any]) -> bytes:
-    """Render a report dict (as returned by ``get_report``) to PDF bytes."""
+    """Render a report dict to PDF bytes."""
     st = _styles()
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
-                            topMargin=16 * mm, bottomMargin=18 * mm,
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=_MARGIN, rightMargin=_MARGIN,
+                            topMargin=14 * mm, bottomMargin=20 * mm,
                             title=f"{report['company']} FY{report['fiscal_year']} research report")
-    width = A4[0] - 36 * mm
-    story: list = [
-        _p(f"{report['company']} — FY{report['fiscal_year']} research report", st["title"]),
-        _p(f"Generated {datetime.now().strftime('%d %b %Y')} from the uploaded annual report. "
-           f"Page references point to PDF pages.", st["sub"]),
-    ]
+    story: list = [_banner(report, st)]
+    metrics = next((s for s in report.get("sections", []) if s["key"] == "metrics"), None)
+    if metrics:
+        story.extend(_glance(metrics.get("highlights", []), st))
     for sec in report.get("sections", []):
-        story.extend(_section_flow(sec, st, width))
+        story.extend(_section(sec, st))
     doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
     return buf.getvalue()

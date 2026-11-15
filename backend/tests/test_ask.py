@@ -25,6 +25,7 @@ from app.agents.chat_agent.classify import match_metric, mentions_other_company,
 from app.agents.report_agent import graph as rg
 from app.agents.report_agent import sections as sec
 from app.agents.report_agent.pdf import build_pdf
+from app.agents.report_agent.graph import get_report_for_pdf
 from app.db.models import Base, ChatMessage, Document, Metric, PageTag, RedFlag, Report, Session
 from app.embeddings import QuotaExhaustedError
 from app.grounding import fill_placeholders, fmt_value, norm, numbers_supported, quote_on_page
@@ -333,7 +334,7 @@ class TestReportAgent:
                              "flags": [], "note": None} for k in ("snapshot", "metrics", "peers", "red_flags", "outlook")]
         rep = rg.get_report(world.session_id, "INFOSYS", 2025)
         assert [s["key"] for s in rep["sections"]] == ["snapshot", "outlook"]
-        assert build_pdf(rep).startswith(b"%PDF")
+        assert build_pdf(get_report_for_pdf(world.session_id, "INFOSYS", 2025)).startswith(b"%PDF")
 
     def test_progress_is_saved_section_by_section(self, world, no_vectors):
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
@@ -414,8 +415,38 @@ class TestReportAgent:
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
         with fake_writer():
             rg.run_report(rid)
-        pdf = build_pdf(rg.get_report(world.session_id, "INFOSYS", 2025))
-        assert pdf.startswith(b"%PDF") and len(pdf) > 1500
+        pdf = build_pdf(get_report_for_pdf(world.session_id, "INFOSYS", 2025))
+        assert pdf.startswith(b"%PDF") and len(pdf) > 3000
+
+    def test_pdf_has_all_five_sections_but_the_screen_has_two(self, world, no_vectors):
+        rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
+        with fake_writer():
+            rg.run_report(rid)
+        screen = [s["key"] for s in rg.get_report(world.session_id, "INFOSYS", 2025)["sections"]]
+        full = get_report_for_pdf(world.session_id, "INFOSYS", 2025)
+        assert screen == ["snapshot", "outlook"]
+        assert [s["key"] for s in full["sections"]] == ["snapshot", "metrics", "peers", "red_flags", "outlook"]
+        glance = {h["label"]: h for h in full["sections"][1]["highlights"]}
+        assert glance["Revenue"]["value"] == "153,670 INR crore" and glance["Revenue"]["change"] == "+4.7%"
+
+    def test_pdf_leaves_out_peers_when_there_is_nobody_to_compare(self, env, world, no_vectors):
+        with env.scope() as s:
+            s.query(Document).filter(Document.id == world.tcs).delete()
+        rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
+        with fake_writer():
+            rg.run_report(rid)
+        keys = [s["key"] for s in get_report_for_pdf(world.session_id, "INFOSYS", 2025)["sections"]]
+        assert keys == ["snapshot", "metrics", "red_flags", "outlook"]
+
+    def test_pdf_works_for_a_report_saved_before_this_change(self, env, world):
+        rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
+        with env.scope() as s:
+            row = s.get(Report, rid)
+            row.status = "ready"
+            row.sections = [{"key": "snapshot", "title": "Company snapshot", "status": "ready", "tables": [],
+                             "flags": [], "note": None, "sentences": [{"text": "Hi.", "page": 2, "quote": None}]}]
+        full = get_report_for_pdf(world.session_id, "INFOSYS", 2025)
+        assert "metrics" in [s["key"] for s in full["sections"]] and build_pdf(full).startswith(b"%PDF")
 
 
 # ── chat agent ────────────────────────────────────────────────────────────────

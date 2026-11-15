@@ -31,7 +31,10 @@ from app import llm
 from app.agents.report_agent import data
 from app.agents.report_agent.sections import (
     SECTION_ORDER,
+    build_flags_section,
     build_grounded_section,
+    build_metrics_section,
+    build_peers_section,
     unavailable,
 )
 from app.company import normalize_company
@@ -134,6 +137,31 @@ def get_report(session_id: uuid.UUID, company: str, fiscal_year: int) -> Optiona
             row.status = "failed"
             row.error = "Report generation was interrupted (the server may have restarted). Click Regenerate."
         return _to_dict(row)
+
+
+PDF_ORDER = ["snapshot", "metrics", "peers", "red_flags", "outlook"]
+
+
+def get_report_for_pdf(session_id: uuid.UUID, company: str, fiscal_year: int) -> Optional[dict[str, Any]]:
+    """The saved report plus the number-based sections (metrics, peers, red flags),
+    built fresh from the database. The screen does not show those; the PDF does."""
+    rep = get_report(session_id, company, fiscal_year)
+    if rep is None:
+        return None
+    with session_scope() as db:
+        doc = data.find_document(db, session_id, rep["company"], fiscal_year)
+        if doc is None:
+            return rep
+        metrics = data.load_metrics(db, doc.id, doc.fiscal_year)
+        flags = data.load_flags(db, doc.id)
+        peers = data.load_peers(db, session_id, rep["company"], fiscal_year)
+        flag_status = doc.red_flag_status
+    extra = {"metrics": build_metrics_section(metrics),
+             "red_flags": build_flags_section(flags, flag_status)}
+    if peers:                                    # nothing to compare with: leave the section out
+        extra["peers"] = build_peers_section(rep["company"], fiscal_year, metrics, peers)
+    by_key = {**{s["key"]: s for s in rep["sections"]}, **extra}
+    return {**rep, "sections": [by_key[k] for k in PDF_ORDER if k in by_key]}
 
 
 # ── graph ─────────────────────────────────────────────────────────────────────

@@ -3,8 +3,7 @@ The five report sections.
 
   snapshot   LLM writes, every sentence cites a page          (in the report)
   outlook    LLM writes from MD&A text + verified metrics     (in the report)
-  metrics / peers / red_flags builders exist but are not part of the report
-  (those have their own pages).
+  metrics / peers / red_flags are built from the database when the PDF is downloaded.
 
 A section is a plain dict (stored as JSON in ``reports.sections``):
 
@@ -37,8 +36,8 @@ from app.grounding import (
 
 logger = logging.getLogger(__name__)
 
-# The report shows only the two written sections: metrics, peers and red flags
-# already have their own pages. The builders for those three stay below, unused.
+# The screen shows only the two written sections (metrics, peers and red flags have their
+# own pages). The PDF adds those three, built fresh at download time (see graph.get_report_for_pdf).
 SECTION_ORDER = [
     ("snapshot", "Company snapshot"),
     ("outlook", "Outlook and summary"),
@@ -68,6 +67,7 @@ FIGURES = ["revenue", "gross_profit", "operating_profit", "net_profit", "eps", "
 RATIOS = ["gross_margin_pct", "operating_margin_pct", "net_margin_pct", "roe_pct", "debt_to_equity",
           "current_ratio", "ocf_to_net_profit", "revenue_growth_pct", "net_profit_growth_pct",
           "receivables_growth_pct", "total_debt_growth_pct"]
+HIGHLIGHTS = ["revenue", "net_profit", "operating_margin_pct", "net_margin_pct", "roe_pct", "debt_to_equity"]
 GROWTH_ONLY_CURRENT = {"revenue_growth_pct", "net_profit_growth_pct", "receivables_growth_pct",
                        "total_debt_growth_pct"}
 # Ratios compared across companies, and whether a higher value is better.
@@ -80,7 +80,7 @@ _ORDINAL = {1: "1st", 2: "2nd", 3: "3rd"}
 
 def _section(key: str, **kw: Any) -> dict[str, Any]:
     base = {"key": key, "title": TITLES[key], "status": "ready",
-            "sentences": [], "tables": [], "flags": [], "note": None}
+            "sentences": [], "tables": [], "flags": [], "highlights": [], "note": None}
     base.update(kw)
     return base
 
@@ -142,10 +142,16 @@ def build_metrics_section(metrics: list[dict]) -> dict[str, Any]:
         tables.append({"title": "Reported figures", "columns": cols, "rows": figures})
     if ratios:
         tables.append({"title": "Ratios and growth (calculated)", "columns": cols, "rows": ratios})
+    highlights = []
+    for name in HIGHLIGHTS:
+        cur = _verified(idx, name)
+        if cur:
+            highlights.append({"label": LABELS[name], "value": fmt_value(cur["value"], cur["unit"]),
+                               "change": _change(cur, _verified(idx, name, "prior")) if name not in GROWTH_ONLY_CURRENT else "—"})
     note = None
     if any(r["warn"] for t in tables for r in t["rows"]):
         note = "Figures marked 'needs review' failed an automatic check and are shown for transparency only."
-    return _section("metrics", tables=tables, note=note)
+    return _section("metrics", tables=tables, highlights=highlights, note=note)
 
 
 # ── 3. peer comparison (no LLM) ───────────────────────────────────────────────
