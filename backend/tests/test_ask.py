@@ -633,6 +633,9 @@ class TestApi:
         pdf = client.get(f"{base}/report/pdf", params=q)
         assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
         assert "INFOSYS_FY2025_report.pdf" in pdf.headers["content-disposition"]
+        assert pdf.headers["content-disposition"].startswith("attachment")
+        preview = client.get(f"{base}/report/pdf", params={**q, "inline": "true"})
+        assert preview.headers["content-disposition"].startswith("inline")
 
     def test_generate_errors(self, client, env, world):
         base = f"/sessions/{world.session_id}"

@@ -1,13 +1,14 @@
 /**
  * Ask and report: pick a session, a company that is actually in it, and a fiscal year.
- * The report comes first (saved, or written section by section with live progress),
- * then a strict chat over that company's document.
+ * "Generate report" writes the report (live progress); then it can be previewed or downloaded as a
+ * PDF, and the strict chat over that company's document opens.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PageHead } from '../components/PageHead'
 import { ChatPanel } from '../components/ChatPanel'
-import { ReportProgress, ReportView } from '../components/ReportView'
+import { PdfPreview } from '../components/PdfPreview'
+import { ReportProgress } from '../components/ReportProgress'
 import { useLoad } from '../components/useLoad'
 import { listSessions } from '../api/sessions'
 import {
@@ -37,40 +38,44 @@ export function AskPage() {
     setParams(next, { replace: true })
   }
 
-  // ── report: load, auto-generate the first time, poll while it is being written ──
+  // ── report: load what is saved, then poll while it is being written ──
   const [state, setState] = useState<ReportState | null>(null)
   const [reportError, setReportError] = useState<string | null>(null)
-  const [poll, setPoll] = useState(0)
+  const [starting, setStarting] = useState(false)
+  const [preview, setPreview] = useState(false)
+  const ready = !!(sessionId && company && year)
 
   useEffect(() => {
-    setState(null); setReportError(null)
-    if (!sessionId || !company || !year) return
+    setState(null); setReportError(null); setPreview(false)
+    if (!ready) return
     let alive = true
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const tick = async (first: boolean) => {
-      try {
-        let st = await getReportState(sessionId, company, year)
-        if (!alive) return
-        if (first && st.readiness.ready && st.report === null) st = await generateReport(sessionId, company, year)
-        if (!alive) return
-        setState(st)
-        if (st.report?.status === 'running') timer = setTimeout(() => void tick(false), POLL_MS)
-      } catch (e) {
-        if (alive) setReportError(e instanceof Error ? e.message : 'Could not load the report')
-      }
-    }
-    void tick(true)
-    return () => { alive = false; if (timer) clearTimeout(timer) }
-  }, [sessionId, company, year, poll])
+    getReportState(sessionId, company, year)
+      .then(st => { if (alive) setState(st) })
+      .catch(e => { if (alive) setReportError(e instanceof Error ? e.message : 'Could not load the report') })
+    return () => { alive = false }
+  }, [sessionId, company, year, ready])
 
-  async function regenerate() {
-    if (!window.confirm('Write the report again? The current one will be replaced.')) return
-    setReportError(null)
+  const running = state?.report?.status === 'running'
+  useEffect(() => {
+    if (!running) return
+    let alive = true
+    const timer = setInterval(() => {
+      getReportState(sessionId, company, year)
+        .then(st => { if (alive) setState(st) })
+        .catch(() => undefined)               // a missed poll is fine; the next one will update
+    }, POLL_MS)
+    return () => { alive = false; clearInterval(timer) }
+  }, [running, sessionId, company, year])
+
+  async function generate(regenerate: boolean) {
+    if (regenerate && !window.confirm('Generate the report again? The current one will be replaced.')) return
+    setReportError(null); setStarting(true)
     try {
-      setState(await generateReport(sessionId, company, year, true))
-      setPoll(p => p + 1)
+      setState(await generateReport(sessionId, company, year, regenerate))
     } catch (e) {
       setReportError(e instanceof Error ? e.message : 'Could not start the report')
+    } finally {
+      setStarting(false)
     }
   }
 
@@ -146,21 +151,32 @@ export function AskPage() {
         <div className="card report-head">
           <div>
             <h2>{company} <span className="accent">FY{year}</span> report</h2>
-            {report?.status === 'running' || !report
-              ? <ReportProgress report={report} />
-              : <p className="sub">
-                  {report.status === 'failed'
-                    ? 'The report could not be completed.'
-                    : report.status === 'partial'
-                      ? 'Some sections could not be written. Regenerate to try again.'
-                      : 'Every statement below is tied to a page of the uploaded report. The PDF also includes key metrics, peer comparison and red flags.'}
-                </p>}
+            {!state && !reportError && <p className="sub">Checking for a saved report…</p>}
+            {state && !report && (
+              <>
+                <p className="sub">
+                  Generate a PDF research report for {company} FY{year}: company snapshot, key metrics and ratios,
+                  peer comparison, red flags and outlook. When it is ready you can preview it and ask questions about it.
+                </p>
+                <div className="gen-cta">
+                  <button className="btn primary" onClick={() => generate(false)} disabled={starting}>
+                    {starting ? 'Starting…' : 'Generate report'}
+                  </button>
+                </div>
+              </>
+            )}
+            {running && <ReportProgress report={report} />}
+            {report?.status === 'ready' && <p className="sub">The report is ready. Preview it here or download the PDF, then ask your questions below.</p>}
+            {report?.status === 'partial' && <p className="sub">The report is ready, but some parts could not be written.</p>}
+            {report?.status === 'failed' && <p className="sub">The report could not be generated.</p>}
           </div>
           <div className="report-actions">
-            {finished
-              ? <a className="btn primary" href={reportPdfUrl(sessionId, company, year)} download>Download PDF</a>
-              : <button className="btn" disabled>Download PDF</button>}
-            <button className="btn outline" onClick={regenerate} disabled={report?.status === 'running'}>Regenerate</button>
+            {finished && <button className="btn primary" onClick={() => setPreview(true)}>Preview</button>}
+            {finished && <a className="btn outline" href={reportPdfUrl(sessionId, company, year)} download>Download PDF</a>}
+            {(finished || report?.status === 'failed') &&
+              <button className="btn outline" onClick={() => generate(true)} disabled={starting}>
+                {report?.status === 'failed' ? 'Try again' : 'Regenerate'}
+              </button>}
           </div>
         </div>
 
@@ -168,9 +184,19 @@ export function AskPage() {
           <div className="card chat-error" role="alert">{reportError ?? report?.error}</div>
         )}
 
-        {report && report.sections.length > 0 && <ReportView report={report} docId={docId} />}
+        {finished
+          ? <ChatPanel sessionId={sessionId} company={company} year={year} docId={docId} />
+          : (
+            <section className="card chat locked" aria-label="Chat (locked)">
+              <h2>Ask about {company} <span className="accent">FY{year}</span></h2>
+              <p className="sub">The chat opens once the report has been generated.</p>
+            </section>
+          )}
 
-        <ChatPanel sessionId={sessionId} company={company} year={year} docId={docId} />
+        {preview && (
+          <PdfPreview title={`${company} FY${year} report`} src={reportPdfUrl(sessionId, company, year, true)}
+            downloadUrl={reportPdfUrl(sessionId, company, year)} onClose={() => setPreview(false)} />
+        )}
       </>)}
       <p className="note">Reports and answers are limited to the uploaded documents. Figures are copied from the statements and checked in code; they are not investment advice.</p>
     </div>

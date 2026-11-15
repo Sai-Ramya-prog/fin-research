@@ -58,12 +58,13 @@ The frontend talks to `http://localhost:8000` unless `VITE_API_URL` is set in `f
 
 Open **Ask and report**, pick a session, a company that is in it (a dropdown, no typing) and a fiscal year.
 
-* **Report** - shown first. If one is saved it is displayed; otherwise it is written section by section
-  (live "N of 2 sections ready"), saved, and cached. **Regenerate** rewrites it; **Download PDF** exports it.
-  Sections: company snapshot and outlook/summary (metrics, peers and red flags have their own pages).
-  The model writes sentences with `{placeholders}` that code fills in from verified numbers, and every
-  sentence must cite a page where its numbers and quote exist.
-* **Chat** - strict: answers only from the selected company's uploaded report, with page citations that open
+* **Report** - click **Generate report** (a saved one is shown straight away). It is written with live
+  progress, saved and cached. When ready you can **Preview** the PDF in the page, **Download PDF**, or
+  **Regenerate**. The PDF has a banner, an "At a glance" strip, company snapshot, key metrics and ratios,
+  peer comparison (other companies in the same session), red flags and outlook. The model writes only the
+  snapshot and outlook, with `{placeholders}` filled by code from verified numbers; every sentence must cite
+  a page where its numbers and quote exist.
+* **Chat** - opens once the report is generated. Strict: answers only from the selected company's uploaded report, with page citations that open
   the page viewer. Plain "what is X" questions are answered from the metrics table by code; questions about
   another company are refused; anything not in the document says so.
 

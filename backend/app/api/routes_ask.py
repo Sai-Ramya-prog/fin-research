@@ -139,14 +139,17 @@ def generate_report(session_id: uuid.UUID, background_tasks: BackgroundTasks,
 
 @router.get("/{session_id}/report/pdf", summary="Download the report as a PDF")
 def download_report_pdf(session_id: uuid.UUID, company: str = Query(..., min_length=1),
-                        fiscal_year: int = Query(...), db: DBSession = Depends(_db)) -> Response:
+                        fiscal_year: int = Query(...),
+                        inline: bool = Query(False, description="true = show in the browser (preview)"),
+                        db: DBSession = Depends(_db)) -> Response:
     _require_session(db, session_id)
     rep = report_graph.get_report_for_pdf(session_id, company, fiscal_year)
     if rep is None or rep["status"] not in ("ready", "partial"):
         raise HTTPException(status.HTTP_409_CONFLICT, "The report is not ready yet.")
     name = re.sub(r"[^A-Za-z0-9]+", "_", rep["company"]).strip("_") or "report"
+    disposition = "inline" if inline else "attachment"
     return Response(build_pdf(rep), media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{name}_FY{fiscal_year}_report.pdf"'})
+                    headers={"Content-Disposition": f'{disposition}; filename="{name}_FY{fiscal_year}_report.pdf"'})
 
 
 # ── chat ──────────────────────────────────────────────────────────────────────

@@ -406,3 +406,13 @@ table.cmp tr.warn td { color: var(--brass-ink); }
 .src.cite.unv { border-style: dashed; color: var(--brass-ink); }
 .chat-error { color: var(--oxblood); font-size: 0.88rem; }
 @media (max-width: 880px) { .selectors { grid-template-columns: 1fr; } .rflags { grid-template-columns: 1fr; } }
+
+/* ── report generate / preview ───────────────────────────────────────── */
+.gen-cta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+.gen-cta .btn { padding: 12px 24px; font-size: 1rem; }
+.chat.locked { opacity: 0.6; }
+.chat.locked h2 { margin-bottom: 4px; }
+.pv { position: fixed; inset: 0; background: rgba(8, 14, 12, 0.62); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+.pv-box { background: var(--card); border: 1px solid var(--line); border-radius: 16px; width: min(1000px, 100%); height: min(92vh, 1100px); display: flex; flex-direction: column; overflow: hidden; }
+.pv-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.pv-frame { flex: 1; width: 100%; border: 0; background: #fff; }

@@ -80,8 +80,8 @@ export const getReportState = (sid: string, company: string, year: number) =>
 export const generateReport = (sid: string, company: string, year: number, regenerate = false) =>
   api.post<ReportState>(`/sessions/${sid}/report/generate?${q(company, year)}&regenerate=${regenerate}`)
 
-export const reportPdfUrl = (sid: string, company: string, year: number) =>
-  `${BASE}/sessions/${sid}/report/pdf?${q(company, year)}`
+export const reportPdfUrl = (sid: string, company: string, year: number, inline = false) =>
+  `${BASE}/sessions/${sid}/report/pdf?${q(company, year)}${inline ? '&inline=true' : ''}`
 
 export const getChat = (sid: string, company: string, year: number) =>
   api.get<ChatMessage[]>(`/sessions/${sid}/chat?${q(company, year)}`)
