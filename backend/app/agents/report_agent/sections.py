@@ -27,8 +27,10 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 from app import llm
+from app.config import settings
 from app.grounding import (
     fill_placeholders,
+    fit_pages,
     fmt_value,
     numbers_supported,
     quote_on_page,
@@ -251,7 +253,6 @@ _BRIEFS = {
                 "figures. 5 to 8 sentences. Report only what the pages say; label management's views as "
                 "management's views."),
 }
-_PAGE_CHARS = 6000
 
 
 def placeholder_values(metrics: list[dict]) -> dict[str, str]:
@@ -268,7 +269,9 @@ def placeholder_values(metrics: list[dict]) -> dict[str, str]:
 def _user_prompt(key: str, company: str, fiscal_year: int, pages: dict[int, str],
                  values: dict[str, str]) -> str:
     figs = "\n".join(f"- {{{k}}} = {v}" for k, v in sorted(values.items())) or "(none)"
-    body = "\n\n".join(f"=== PAGE {n} ===\n{t[:_PAGE_CHARS]}" for n, t in sorted(pages.items()))
+    room = max(2000, settings.llm_max_prompt_chars - len(figs) - len(SYSTEM_PROMPT) - 400)
+    shown = fit_pages(pages, _BRIEFS[key], room)          # page order = priority (MD&A first)
+    body = "\n\n".join(f"=== PAGE {n} ===\n{t}" for n, t in sorted(shown.items()))
     return (f"Company: {company}\nFiscal year: {fiscal_year}\n\nTask: {_BRIEFS[key]}\n\n"
             f"AVAILABLE FIGURES (use as placeholders):\n{figs}\n\nPAGES:\n{body}")
 

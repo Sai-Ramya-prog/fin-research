@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     llm_model: str = "gemini-3.8-flash"
     llm_max_retries: int = 4
     llm_timeout_seconds: int = 120
+    # Most text sent to the model in ONE report/chat request (about 3 characters per token).
+    # 9000 keeps a request near 3-4k tokens, under Groq's free-tier limit of 7000 tokens a minute.
+    llm_max_prompt_chars: int = 9000
     # Optional second model to switch to when the main one stays overloaded.
     llm_fallback_model: str = ""
     # Run Extraction + Red Flag agents automatically after the Document Agent.

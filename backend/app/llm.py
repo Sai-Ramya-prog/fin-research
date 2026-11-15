@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from typing import TypeVar
 
@@ -41,6 +42,20 @@ def _is_transient(exc: BaseException) -> bool:
     text = str(exc).lower()
     return any(k in text for k in ("503", "504", "unavailable", "deadline", "high demand",
                                    "overloaded", "timed out", "timeout", "connection"))
+
+
+_RETRY_IN = re.compile(r"try again in\s+(?:(\d+)m(?!s))?\s*(?:(\d+(?:\.\d+)?)(ms|s))?", re.IGNORECASE)
+
+
+def _retry_after_seconds(exc: BaseException) -> float | None:
+    """Groq-style "Please try again in 6.5s" / "1m2.5s" / "350ms" -> seconds (None if absent)."""
+    m = _RETRY_IN.search(str(exc))
+    if not m or not (m.group(1) or m.group(2)):
+        return None
+    minutes = float(m.group(1) or 0)
+    amount = float(m.group(2) or 0)
+    seconds = amount / 1000 if (m.group(3) or "").lower() == "ms" else amount
+    return minutes * 60 + seconds
 
 
 def call_structured(schema: type[T], system: str, user: str) -> T:
@@ -96,6 +111,9 @@ def call_structured(schema: type[T], system: str, user: str) -> T:
                 last = exc
                 delay = _BASE_DELAY_SECONDS * (2 ** attempt)
                 delay += delay * 0.1 * (2 * random.random() - 1)
+                hinted = _retry_after_seconds(exc)           # the provider says how long to wait
+                if hinted is not None:
+                    delay = min(max(delay if hinted < 1 else 0, hinted + 1.0), 75.0)
                 logger.warning("LLM rate-limited (attempt %d). Retrying in %.1fs", attempt + 1, delay)
                 time.sleep(max(0.1, delay))
                 continue

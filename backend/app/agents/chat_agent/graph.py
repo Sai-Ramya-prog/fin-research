@@ -41,7 +41,8 @@ from app.agents.report_agent.sections import LABELS
 from app.company import normalize_company
 from app.db.engine import session_scope
 from app.db.models import ChatMessage, Document
-from app.grounding import fmt_value, numbers_supported, quote_on_page
+from app.config import settings
+from app.grounding import fit_pages, fmt_value, numbers_supported, quote_on_page
 from app.pages import find_pages, load_page_texts
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ logger = logging.getLogger(__name__)
 HISTORY_TURNS = 6            # messages shown to the rewriter
 HISTORY_LIMIT = 200          # messages returned to the screen
 MAX_PAGES = 5
-PAGE_CHARS = 6000
+PAGE_CHARS = 40000          # full page text is kept for verification; the prompt gets an excerpt
 WEAK_SCORE = 0.45            # best cosine score below this = "weak retrieval"
 WEAK_HITS = 3
 
@@ -239,8 +240,10 @@ def _node_retrieve(state: ChatState) -> ChatState:
 
 
 def _prompt(state: ChatState) -> str:
-    body = "\n\n".join(f"=== PAGE {n} ===\n{t}" for n, t in sorted(state["pages"].items()))
     extra = f"\n\nCorrection needed: {state['feedback']}" if state.get("feedback") else ""
+    room = max(2000, settings.llm_max_prompt_chars - len(ANSWER_SYSTEM) - len(state["standalone"]) - len(extra) - 300)
+    shown = fit_pages(state["pages"], state["standalone"], room)     # most relevant pages first, trimmed
+    body = "\n\n".join(f"=== PAGE {n} ===\n{t}" for n, t in sorted(shown.items()))
     return (f"Company: {state['company']} (FY{state['fiscal_year']})\n"
             f"Question: {state['standalone']}\n\nPAGES:\n{body}{extra}")
 

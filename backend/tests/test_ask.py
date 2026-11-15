@@ -28,7 +28,8 @@ from app.agents.report_agent.pdf import build_pdf
 from app.agents.report_agent.graph import get_report_for_pdf
 from app.db.models import Base, ChatMessage, Document, Metric, PageTag, RedFlag, Report, Session
 from app.embeddings import QuotaExhaustedError
-from app.grounding import fill_placeholders, fmt_value, norm, numbers_supported, quote_on_page
+from app.grounding import excerpt, fill_placeholders, fit_pages, fmt_value, norm, numbers_supported, quote_on_page
+from app.llm import _retry_after_seconds
 
 MDNA = ("Infosys is a global leader in next-generation digital services and consulting. "
         "We operate in North America, Europe and India. Management expects demand for AI "
@@ -144,6 +145,53 @@ class TestGrounding:
 
     def test_norm_flattens(self):
         assert norm("A–B  C") == "a-b c"
+
+
+class TestPromptSize:
+    def test_excerpt_picks_the_window_that_matches_the_question(self):
+        text = ("filler " * 1500) + "The dividend per share was twelve rupees. " + ("padding " * 1500)
+        out = excerpt(text, "What was the dividend per share?", 1000)
+        assert len(out) == 1000 and "dividend per share" in out
+
+    def test_excerpt_returns_short_text_whole_and_starts_at_top_without_matches(self):
+        assert excerpt("short", "anything", 100) == "short"
+        assert excerpt("a" * 5000, "zzzz", 800) == "a" * 800
+
+    def test_fit_pages_stays_within_the_budget_and_keeps_the_first_pages(self):
+        pages = {n: f"page{n} " * 3000 for n in (9, 2, 5, 7, 1, 3)}
+        out = fit_pages(pages, "page", 9000)
+        assert sum(len(t) for t in out.values()) <= 9000
+        assert list(out) == [9, 2, 5, 7]                    # relevance order kept, only what fits
+
+    def test_a_huge_page_set_never_produces_an_oversized_report_prompt(self):
+        pages = {n: "revenue and profit discussion " * 2000 for n in range(1, 9)}
+        prompt = sec._user_prompt("snapshot", "INFOSYS", 2025, pages, {"revenue": "1 INR crore"})
+        assert len(prompt) + len(sec.SYSTEM_PROMPT) <= 9000 + 200
+
+    def test_chat_prompt_is_capped_and_quotes_are_still_checked_on_the_full_page(self, world, vectors):
+        long_page = ("filler text. " * 1500) + "North America, Europe and India are key markets. " + ("more filler. " * 1500)
+        seen = {}
+
+        def fake(schema, system, user):
+            seen["len"] = len(system) + len(user)
+            return chat.Answer(found=True, answer="They operate in North America, Europe and India.",
+                               citations=[chat.Cite(page=2, quote="North America, Europe and India are key markets")])
+        with patch("app.agents.chat_agent.graph.load_page_texts", return_value={2: long_page}), \
+                patch.object(llm, "call_structured", side_effect=fake):
+            msg = chat.ask(world.session_id, "INFOSYS", 2025, "Which markets are key in North America, Europe and India?")
+        assert seen["len"] <= 9000 + 600
+        assert msg["kind"] == "answer"
+
+
+class TestRateLimitHint:
+    @pytest.mark.parametrize("text,expected", [
+        ("Please try again in 6.5s. Need more tokens?", 6.5),
+        ("rate limit... Please try again in 1m2.5s.", 62.5),
+        ("Please try again in 350ms", 0.35),
+        ("Please try again in 2m", 120.0),
+        ("no hint here", None)])
+    def test_retry_after_is_parsed(self, text, expected):
+        assert _retry_after_seconds(RuntimeError(text)) == expected
 
 
 # ── sections ──────────────────────────────────────────────────────────────────

@@ -82,3 +82,35 @@ def numbers_supported(
     on_page = numbers_on_page(page_text)
     ok = on_page | {round(float(a), 4) for a in allowed}
     return all(n in ok for n in typed)
+
+
+# ── keeping prompts small ─────────────────────────────────────────────────────
+MIN_PAGE_CHARS = 2000
+
+
+def excerpt(text: str, query: str, max_chars: int) -> str:
+    """The ``max_chars`` window of ``text`` that mentions the most words from ``query``
+    (the start of the page when nothing matches). Short texts are returned whole."""
+    if len(text) <= max_chars:
+        return text
+    words = {w for w in re.findall(r"[a-z0-9]{4,}", (query or "").lower())}
+    low = text.lower()
+    step = max(200, max_chars // 6)
+    best_start, best_score = 0, -1
+    for start in range(0, len(text) - max_chars + 1, step):
+        window = low[start:start + max_chars]
+        score = sum(1 for w in words if w in window)
+        if score > best_score:
+            best_start, best_score = start, score
+    return text[best_start:best_start + max_chars]
+
+
+def fit_pages(pages: Mapping[int, str], query: str, budget: int) -> dict[int, str]:
+    """Shrink ``{pdf_page: text}`` to about ``budget`` characters in total: keep the first
+    (most relevant) pages that fit at least MIN_PAGE_CHARS each, and give each the part
+    of the page that best matches ``query``."""
+    keep = list(pages)[: max(1, budget // MIN_PAGE_CHARS)]
+    if not keep:
+        return {}
+    per = max(500, budget // len(keep))
+    return {p: excerpt(pages[p], query, per) for p in keep}
