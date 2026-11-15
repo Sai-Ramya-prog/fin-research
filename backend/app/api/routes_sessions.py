@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app import storage
 from app.agents.orchestrator import run_pipeline
+from app.company import normalize_company
 from app.db.engine import get_session
 from app.db.models import Document, Session
 
@@ -222,7 +223,7 @@ async def upload_document(
     session_id: uuid.UUID,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF file to upload"),
-    company: str = Form(..., description="Company name (e.g. 'Infosys')"),
+    company: str = Form(..., description="Company name (e.g. 'Infosys'); stored upper-case"),
     fiscal_year: str = Form(..., description="Fiscal year (e.g. 'FY2024')"),
     db: DBSession = Depends(_db),
 ) -> DocumentOut:
@@ -275,7 +276,7 @@ async def upload_document(
         session_id=session_id,
         filename=original_filename,
         storage_key=storage_key,
-        company=company.strip() or None,
+        company=normalize_company(company),
         fiscal_year=fy_int,
         status="uploaded",
     )

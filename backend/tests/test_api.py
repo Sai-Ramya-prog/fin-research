@@ -213,7 +213,7 @@ class TestSessionsCRUD:
         r = client.get("/documents")
         assert r.status_code == 200
         body = r.json()
-        assert body[0]["company"] == "Apple" and "extraction_status" in body[0]
+        assert body[0]["company"] == "APPLE" and "extraction_status" in body[0]
 
     def test_get_session_detail(self, client):
         s = _create_session(client)
@@ -254,7 +254,9 @@ class TestDocumentUpload:
         assert r.status_code == 202
         body = r.json()
         assert body["status"] == "uploaded"
-        assert body["company"] == "Infosys"
+        assert body["company"] == "INFOSYS"
+        # messy spacing/case is cleaned up too
+        assert _upload_doc(client, s["id"], company="  tata   motors ")["company"] == "TATA MOTORS"
         assert body["filename"] == "report.pdf"
 
     def test_upload_non_pdf_rejected_by_extension(self, client):

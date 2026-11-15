@@ -20,6 +20,7 @@ langchain-openai>=0.1.0     # only needed for LLM_PROVIDER=openai_compatible (Gr
 # ──────────────────────────────────────────────
 pymupdf>=1.24.0                # fitz – fast full-document pass
 pdfplumber>=0.11.0             # layout-preserving table-page extraction
+reportlab>=4.0.0               # PDF export of the research report (pure Python, works on Windows)
 
 # ──────────────────────────────────────────────
 # Vector DB (Qdrant)

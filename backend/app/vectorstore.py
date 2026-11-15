@@ -239,6 +239,25 @@ def upsert(
         client.upsert(collection_name=name, points=points[start : start + MAX_BATCH], wait=True)
 
 
+def set_company(document_id: uuid.UUID | str, company: str) -> int:
+    """Rewrite the ``company`` payload of every chunk of a document, in place.
+
+    No embedding is touched, so this costs no quota. Returns how many chunks
+    belong to the document.
+    """
+    client, name = get_client(), ensure_collection()
+    flt = _doc_filter(document_id)
+    count = client.count(collection_name=name, count_filter=flt, exact=True).count
+    if count:
+        client.set_payload(
+            collection_name=name,
+            payload={"company": company},
+            points=models.FilterSelector(filter=flt),
+            wait=True,
+        )
+    return count
+
+
 def delete_chunk_ids(chunk_ids: Sequence[str]) -> None:
     client, name = get_client(), ensure_collection()
     ids = list(chunk_ids)

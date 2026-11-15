@@ -41,10 +41,10 @@ Seed catalogue
 --------------
 The four PDFs in ``data/seed/`` map to::
 
-    infosys_fy2025.pdf.pdf     → company="Infosys"       fiscal_year=2025
+    infosys_fy2025.pdf.pdf     → company="INFOSYS"       fiscal_year=2025
     mahindra_fy2025.pdf.pdf    → company="M&M"           fiscal_year=2025
-    reliance_fy2025.pdf.pdf    → company="Reliance"      fiscal_year=2025
-    tata_motors_fy2025.pdf.pdf → company="Tata Motors"   fiscal_year=2025
+    reliance_fy2025.pdf.pdf    → company="RELIANCE"      fiscal_year=2025
+    tata_motors_fy2025.pdf.pdf → company="TATA MOTORS"   fiscal_year=2025
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ import uuid
 from pathlib import Path
 
 from app.agents.orchestrator import run_pipeline
+from app.company import normalize_company
 from app.config import settings
 from app import storage
 from app.db.engine import SessionLocal
@@ -72,10 +73,10 @@ logger = logging.getLogger(__name__)
 _SEED_DIR = Path(__file__).parent.parent / "data" / "seed"
 
 SEED_DOCUMENTS: list[tuple[str, str, int]] = [
-    ("infosys_fy2025.pdf.pdf",     "Infosys",     2025),
+    ("infosys_fy2025.pdf.pdf",     "INFOSYS",     2025),
     ("mahindra_fy2025.pdf.pdf",    "M&M",         2025),
-    ("reliance_fy2025.pdf.pdf",    "Reliance",    2025),
-    ("tata_motors_fy2025.pdf.pdf", "Tata Motors", 2025),
+    ("reliance_fy2025.pdf.pdf",    "RELIANCE",    2025),
+    ("tata_motors_fy2025.pdf.pdf", "TATA MOTORS", 2025),
 ]
 
 SEED_SESSION_NAME = "Seed Companies"
@@ -163,7 +164,7 @@ def _create_doc_row(
             session_id=session_id,
             filename=filename,
             storage_key=storage_key,
-            company=company,
+            company=normalize_company(company),
             fiscal_year=fiscal_year,
             status="uploaded",
         )

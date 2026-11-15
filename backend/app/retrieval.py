@@ -56,12 +56,15 @@ def _build_filter(
     section: Optional[str],
     scope: Optional[str],
     fiscal_year: Optional[str],
+    document_id: Optional[str] = None,
 ) -> Optional[dict[str, str]]:
     """Map the optional filters to ``{payload_field: exact_value}`` (AND).
 
     Returns ``None`` when no filter was given.
     """
     must: dict[str, str] = {}
+    if document_id:
+        must["doc_id"] = str(document_id)
     if company:
         must["company"] = company
     if section:
@@ -80,6 +83,7 @@ def search(
     section: Optional[str] = None,
     scope: Optional[str] = None,
     fiscal_year: Optional[str] = None,
+    document_id: Optional[str] = None,
     k: int = 5,
 ) -> list[SearchResult]:
     """
@@ -89,9 +93,10 @@ def search(
     ----------
     query:
         Natural-language query string to embed and search.
-    company, section, scope, fiscal_year:
+    company, section, scope, fiscal_year, document_id:
         Optional exact-match filters (e.g. ``section="balance_sheet"``,
-        ``scope="consolidated"``).
+        ``scope="consolidated"``). ``document_id`` limits the search to one
+        uploaded document.
     k:
         Maximum number of results to return (default 5).
 
@@ -107,7 +112,7 @@ def search(
     query_vector = get_embeddings().embed_query(query.strip())
     logger.debug("search: embedded query (%d dims)", len(query_vector))
 
-    must = _build_filter(company, section, scope, fiscal_year)
+    must = _build_filter(company, section, scope, fiscal_year, document_id)
     logger.debug("search: filter=%s  k=%d", must, k)
 
     hits = vectorstore.search(query_vector, limit=k, must=must)

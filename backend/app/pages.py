@@ -175,3 +175,17 @@ def load_pages(
                     }
                 )
         return sorted(out, key=lambda d: d["pdf_page"])
+
+
+def load_page_texts(document_id: uuid.UUID, pdf_pages: Iterable[int]) -> dict[int, str]:
+    """Stored text of the given pages: ``{pdf_page: text}`` (missing pages are skipped)."""
+    wanted = sorted({int(p) for p in pdf_pages})
+    if not wanted:
+        return {}
+    with session_scope() as db:
+        rows = (
+            db.query(PageTag.pdf_page, PageTag.text)
+            .filter(PageTag.document_id == document_id, PageTag.pdf_page.in_(wanted))
+            .all()
+        )
+        return {int(pg): (txt or "") for pg, txt in rows}

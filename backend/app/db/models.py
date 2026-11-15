@@ -19,9 +19,11 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -261,3 +263,85 @@ class RedFlag(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<RedFlag doc={self.document_id!s} type={self.type!r}>"
+
+
+
+# ── Report ────────────────────────────────────────────────────────────────────
+
+class Report(Base):
+    """
+    The saved research report for one (session, company, fiscal year).
+
+    ``sections`` is a JSON list with one entry per finished section, so the
+    screen can show real progress ("2 of 5 sections ready") while the report is
+    still being generated. ``status``: pending | running | ready | failed.
+    """
+
+    __tablename__ = "reports"
+    __table_args__ = (
+        UniqueConstraint("session_id", "company", "fiscal_year", name="uq_reports_session_company_year"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    company: Mapped[str] = mapped_column(String(255), nullable=False)
+    fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
+    sections: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now, onupdate=_now
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Report {self.company!r} FY{self.fiscal_year} {self.status}>"
+
+
+# ── ChatMessage ───────────────────────────────────────────────────────────────
+
+class ChatMessage(Base):
+    """
+    One message in the chat for a (session, company, fiscal year).
+    ``role`` is "user" or "assistant"; ``citations`` is a JSON list of
+    {pdf_page, quote, verified} for assistant answers.
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    company: Mapped[str] = mapped_column(String(255), nullable=False)
+    fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    # answer | numeric | not_found | unverified | other_company  (user messages: "question")
+    kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="answer", server_default="answer"
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    citations: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<ChatMessage {self.role} {self.company!r}>"

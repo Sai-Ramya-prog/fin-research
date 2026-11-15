@@ -14,6 +14,7 @@ out of the box.
 Routers
 -------
   /sessions          → routes_sessions.router
+  /sessions/{id}/... → routes_ask.router (companies, report, chat)
   /documents         → routes_documents.router
   /health            → inline endpoint (avoids a separate file for one route)
 
@@ -34,6 +35,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes_ask import router as ask_router
 from app.api.routes_documents import router as documents_router
 from app.api.routes_sessions import router as sessions_router
 from app.config import settings
@@ -105,6 +107,7 @@ app.add_middleware(
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(sessions_router, prefix="/sessions", tags=["sessions"])
+app.include_router(ask_router, prefix="/sessions", tags=["ask"])
 app.include_router(documents_router, prefix="/documents", tags=["documents"])
 
 
