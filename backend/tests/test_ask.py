@@ -358,6 +358,33 @@ class TestReportAgent:
         assert regen == rid and run is True
         assert rg.get_report(world.session_id, "INFOSYS", 2025)["sections"] == []
 
+    def test_cancel_stops_further_model_calls_and_leaves_nothing_behind(self, world, no_vectors):
+        rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
+        calls = []
+
+        def call(schema, system, user):
+            calls.append(1)
+            assert rg.cancel_report(world.session_id, "infosys", 2025) is True   # user switches company mid-run
+            return sec.SectionDraft(sentences=[sec.DraftSentence(text="It is a firm.", page=2, quote=None)])
+        with patch.object(llm, "call_structured", side_effect=call):
+            rg.run_report(rid)
+        assert len(calls) == 1                                # the outlook section never called the model
+        assert rg.get_report(world.session_id, "INFOSYS", 2025) is None
+
+    def test_cancel_never_deletes_a_finished_report(self, world, no_vectors):
+        rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
+        with fake_writer():
+            rg.run_report(rid)
+        assert rg.cancel_report(world.session_id, "INFOSYS", 2025) is False
+        assert rg.get_report(world.session_id, "INFOSYS", 2025)["status"] == "ready"
+
+    def test_can_generate_again_right_after_cancelling(self, world):
+        rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
+        rg.cancel_report(world.session_id, "INFOSYS", 2025)
+        new_id, run = rg.start_report(world.session_id, "INFOSYS", 2025)
+        assert run and new_id != rid
+        assert rg.run_report(rid) is False                    # the stale run exits quietly
+
     def test_running_report_is_not_started_twice(self, world):
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
         _, run = rg.start_report(world.session_id, "INFOSYS", 2025)
@@ -636,6 +663,14 @@ class TestApi:
         assert pdf.headers["content-disposition"].startswith("attachment")
         preview = client.get(f"{base}/report/pdf", params={**q, "inline": "true"})
         assert preview.headers["content-disposition"].startswith("inline")
+
+    def test_cancel_endpoint(self, client, world):
+        base = f"/sessions/{world.session_id}/report"
+        q = {"company": "INFOSYS", "fiscal_year": 2025}
+        assert client.post(f"{base}/cancel", params=q).json() == {"cancelled": False}
+        rg.start_report(world.session_id, "INFOSYS", 2025)
+        assert client.post(f"{base}/cancel", params=q).json() == {"cancelled": True}
+        assert client.get(base, params=q).json()["report"] is None
 
     def test_generate_errors(self, client, env, world):
         base = f"/sessions/{world.session_id}"

@@ -80,6 +80,9 @@ export const getReportState = (sid: string, company: string, year: number) =>
 export const generateReport = (sid: string, company: string, year: number, regenerate = false) =>
   api.post<ReportState>(`/sessions/${sid}/report/generate?${q(company, year)}&regenerate=${regenerate}`)
 
+export const cancelReport = (sid: string, company: string, year: number) =>
+  api.post<{ cancelled: boolean }>(`/sessions/${sid}/report/cancel?${q(company, year)}`)
+
 export const reportPdfUrl = (sid: string, company: string, year: number, inline = false) =>
   `${BASE}/sessions/${sid}/report/pdf?${q(company, year)}${inline ? '&inline=true' : ''}`
 

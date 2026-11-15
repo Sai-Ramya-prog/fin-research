@@ -139,6 +139,27 @@ def get_report(session_id: uuid.UUID, company: str, fiscal_year: int) -> Optiona
         return _to_dict(row)
 
 
+def cancel_report(session_id: uuid.UUID, company: str, fiscal_year: int) -> bool:
+    """Stop a report that is being generated (the user changed company/year). The row is
+    deleted, so the background run sees it is gone and stops before its next model call.
+    Returns False when nothing was running (a finished report is never deleted)."""
+    name = normalize_company(company)
+    with session_scope() as db:
+        row = (db.query(Report)
+               .filter(Report.session_id == session_id, Report.company == name,
+                       Report.fiscal_year == fiscal_year, Report.status == "running").first())
+        if row is None:
+            return False
+        db.delete(row)
+        return True
+
+
+def _still_wanted(report_id: uuid.UUID) -> bool:
+    with session_scope() as db:
+        row = db.get(Report, report_id)
+        return row is not None and row.status == "running"
+
+
 PDF_ORDER = ["snapshot", "metrics", "peers", "red_flags", "outlook"]
 
 
@@ -181,7 +202,7 @@ class ReportState(TypedDict, total=False):
 def _save_section(report_id: uuid.UUID, section: dict) -> None:
     with session_scope() as db:
         row = db.get(Report, report_id)
-        if row is None:
+        if row is None or row.status != "running":      # cancelled (or restarted) while this was being written
             return
         kept = [s for s in (row.sections or []) if s["key"] != section["key"]]
         row.sections = kept + [section]          # new list so the JSON change is detected
@@ -224,6 +245,9 @@ def _llm_section(key: str):
     def node(state: ReportState) -> ReportState:
         if state.get("error"):
             return state
+        if not _still_wanted(state["report_id"]):       # cancelled: spend no more model calls
+            logger.info("[report:%s] cancelled, skipping", key)
+            return state
         errors = list(state.get("errors", []))
         if state.get("quota_hit"):
             section = unavailable(key, "Skipped: the model's daily quota is used up. Regenerate later.")
@@ -252,7 +276,7 @@ def _node_finish(state: ReportState) -> ReportState:
     errors = state.get("errors", [])
     with session_scope() as db:
         row = db.get(Report, state["report_id"])
-        if row is not None:
+        if row is not None and row.status == "running":
             order = {k: i for i, (k, _) in enumerate(SECTION_ORDER)}
             row.sections = sorted(row.sections or [], key=lambda s: order.get(s["key"], 99))
             row.status = "partial" if errors else "ready"
@@ -302,8 +326,8 @@ def run_report(report_id: uuid.UUID) -> bool:
     """Generate the report. Returns True unless it failed outright."""
     with session_scope() as db:
         row = db.get(Report, report_id)
-        if row is None:
-            raise RuntimeError(f"Report {report_id} not found")
+        if row is None:                                 # cancelled before it started
+            return False
         doc = data.find_document(db, row.session_id, row.company, row.fiscal_year)
         if doc is None:
             row.status, row.error = "failed", "document no longer exists"

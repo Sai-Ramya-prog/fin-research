@@ -12,7 +12,7 @@ import { ReportProgress } from '../components/ReportProgress'
 import { useLoad } from '../components/useLoad'
 import { listSessions } from '../api/sessions'
 import {
-  generateReport, getCompanies, getReportState, reportPdfUrl,
+  cancelReport, generateReport, getCompanies, getReportState, reportPdfUrl,
   type ReportState,
 } from '../api/ask'
 
@@ -79,6 +79,17 @@ export function AskPage() {
     }
   }
 
+  /** Changing session / company / year while a report is being written stops it, after asking. */
+  function change(patch: Record<string, string>) {
+    if (running) {
+      const ok = window.confirm(
+        'A report is being generated. If you change the selection, the generation will stop and the progress will be lost. Continue?')
+      if (!ok) return
+      void cancelReport(sessionId, company, year).catch(() => undefined)
+    }
+    update(patch)
+  }
+
   const report = state?.report ?? null
   const finished = report?.status === 'ready' || report?.status === 'partial'
   const docId = yearOpt?.document_id ?? ''
@@ -110,24 +121,30 @@ export function AskPage() {
       <div className="card selectors">
         <label>
           <span>Session</span>
-          <select value={sessionId} onChange={e => update({ session: e.target.value, company: '', year: '' })}>
+          <select value={sessionId} onChange={e => change({ session: e.target.value, company: '', year: '' })}>
             {withDocs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </label>
         <label>
           <span>Company</span>
           <select value={company} disabled={options.length === 0}
-            onChange={e => update({ company: e.target.value, year: '' })}>
+            onChange={e => change({ company: e.target.value, year: '' })}>
             {options.map(c => <option key={c.company} value={c.company}>{c.company}</option>)}
           </select>
         </label>
         <label>
           <span>Fiscal year</span>
-          <select value={year || ''} disabled={years.length === 0} onChange={e => update({ year: e.target.value })}>
+          <select value={year || ''} disabled={years.length === 0} onChange={e => change({ year: e.target.value })}>
             {years.map(y => <option key={y.fiscal_year} value={y.fiscal_year}>FY{y.fiscal_year}</option>)}
           </select>
         </label>
         <p className="sub">Only companies uploaded to {sessionName ? `“${sessionName}”` : 'this session'} are listed. Names are matched in upper case.</p>
+        <div className="gen-slot">
+          <button className="btn primary" onClick={() => generate(finished)}
+            disabled={!yearOpt?.ready || !state || running || starting}>
+            {running || starting ? 'Generating…' : finished ? 'Regenerate report' : 'Generate report'}
+          </button>
+        </div>
       </div>
 
       {companies.error && <div className="card"><div className="empty" style={{ color: 'var(--oxblood)' }}>{companies.error}</div></div>}
@@ -153,30 +170,20 @@ export function AskPage() {
             <h2>{company} <span className="accent">FY{year}</span> report</h2>
             {!state && !reportError && <p className="sub">Checking for a saved report…</p>}
             {state && !report && (
-              <>
-                <p className="sub">
-                  Generate a PDF research report for {company} FY{year}: company snapshot, key metrics and ratios,
-                  peer comparison, red flags and outlook. When it is ready you can preview it and ask questions about it.
-                </p>
-                <div className="gen-cta">
-                  <button className="btn primary" onClick={() => generate(false)} disabled={starting}>
-                    {starting ? 'Starting…' : 'Generate report'}
-                  </button>
-                </div>
-              </>
+              <p className="sub">
+                Click <b>Generate report</b> above to create a PDF research report for {company} FY{year}: company
+                snapshot, key metrics and ratios, peer comparison, red flags and outlook. When it is ready you can
+                preview it and ask questions about it.
+              </p>
             )}
             {running && <ReportProgress report={report} />}
             {report?.status === 'ready' && <p className="sub">The report is ready. Preview it here or download the PDF, then ask your questions below.</p>}
             {report?.status === 'partial' && <p className="sub">The report is ready, but some parts could not be written.</p>}
-            {report?.status === 'failed' && <p className="sub">The report could not be generated.</p>}
+            {report?.status === 'failed' && <p className="sub">The report could not be generated. Click <b>Generate report</b> to try again.</p>}
           </div>
           <div className="report-actions">
             {finished && <button className="btn primary" onClick={() => setPreview(true)}>Preview</button>}
             {finished && <a className="btn outline" href={reportPdfUrl(sessionId, company, year)} download>Download PDF</a>}
-            {(finished || report?.status === 'failed') &&
-              <button className="btn outline" onClick={() => generate(true)} disabled={starting}>
-                {report?.status === 'failed' ? 'Try again' : 'Regenerate'}
-              </button>}
           </div>
         </div>
 

@@ -378,7 +378,9 @@ ul.checks li.miss::before { content: '!'; color: var(--oxblood); }
   padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--sunk); color: var(--ink);
   font: inherit; font-size: 0.93rem; outline-color: var(--teal);
 }
-.selectors .sub { grid-column: 1 / -1; margin: 0; }
+.selectors .sub { grid-column: 1 / 3; margin: 0; align-self: center; }
+.gen-slot { grid-column: 3; display: flex; justify-content: flex-end; }
+.gen-slot .btn { padding: 11px 26px; font-size: 0.98rem; }
 .report-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
 .report-head > div:first-child { flex: 1 1 320px; min-width: 0; }
 .report-actions { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
@@ -405,7 +407,7 @@ table.cmp tr.warn td { color: var(--brass-ink); }
 .badge-muted { background: var(--chip); color: var(--muted); }
 .src.cite.unv { border-style: dashed; color: var(--brass-ink); }
 .chat-error { color: var(--oxblood); font-size: 0.88rem; }
-@media (max-width: 880px) { .selectors { grid-template-columns: 1fr; } .rflags { grid-template-columns: 1fr; } }
+@media (max-width: 880px) { .selectors { grid-template-columns: 1fr; } .selectors .sub, .gen-slot { grid-column: 1; } .gen-slot { justify-content: stretch; } .gen-slot .btn { width: 100%; } .rflags { grid-template-columns: 1fr; } }
 
 /* ── report generate / preview ───────────────────────────────────────── */
 .gen-cta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 12px; }

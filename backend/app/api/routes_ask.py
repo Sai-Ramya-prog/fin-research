@@ -137,6 +137,13 @@ def generate_report(session_id: uuid.UUID, background_tasks: BackgroundTasks,
             "report": report_graph.get_report(session_id, company, fiscal_year)}
 
 
+@router.post("/{session_id}/report/cancel", summary="Stop a report that is being generated")
+def cancel_report(session_id: uuid.UUID, company: str = Query(..., min_length=1), fiscal_year: int = Query(...),
+                  db: DBSession = Depends(_db)) -> dict:
+    _require_session(db, session_id)
+    return {"cancelled": report_graph.cancel_report(session_id, company, fiscal_year)}
+
+
 @router.get("/{session_id}/report/pdf", summary="Download the report as a PDF")
 def download_report_pdf(session_id: uuid.UUID, company: str = Query(..., min_length=1),
                         fiscal_year: int = Query(...),
