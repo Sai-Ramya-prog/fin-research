@@ -493,6 +493,16 @@ class TestReportAgent:
         pdf = build_pdf(get_report_for_pdf(world.session_id, "INFOSYS", 2025))
         assert pdf.startswith(b"%PDF") and len(pdf) > 3000
 
+    def test_pdf_prints_the_rupee_sign_as_rs_not_a_black_square(self):
+        import fitz
+        rep = {"company": "M&M", "fiscal_year": 2025, "status": "ready", "sections": [
+            {"key": "metrics", "title": "Key metrics", "status": "ready", "sentences": [{"text": "Revenue was ₹ 5 in crore.", "page": 3, "quote": "“₹ 5”"}],
+             "flags": [], "note": None, "highlights": [{"label": "Revenue", "value": "158,749.75 ₹ in crore", "change": "+14.8%"}],
+             "tables": [{"title": "Reported figures", "columns": ["Metric", "This year", "Last year", "Change"],
+                         "rows": [{"cells": ["Revenue", "158,749.75 ₹ in crore", "138,279.3 ₹ in crore", "+14.8%"], "page": 45, "warn": False}]}]}]}
+        text = "".join(page.get_text() for page in fitz.open(stream=build_pdf(rep), filetype="pdf"))
+        assert "Rs. in crore" in text and "\u20b9" not in text and "\u25a0" not in text
+
     def test_pdf_has_all_five_sections_but_the_screen_has_two(self, world, no_vectors):
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
         with fake_writer():

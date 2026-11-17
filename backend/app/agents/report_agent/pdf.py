@@ -66,8 +66,19 @@ def _styles() -> dict[str, ParagraphStyle]:
     }
 
 
+def _clean(text: Any) -> str:
+    """The PDF uses the built-in Helvetica (no font files to install), which cannot draw the
+    rupee sign and would print a black square. Write it as "Rs."; drop anything else it cannot draw."""
+    t = str(text).replace("\u20b9", "Rs.")
+    return t.encode("cp1252", "ignore").decode("cp1252")
+
+
+def _esc(text: Any) -> str:
+    return escape(_clean(text))
+
+
 def _p(text: Any, style: ParagraphStyle) -> Paragraph:
-    return Paragraph(escape(str(text)), style)
+    return Paragraph(_esc(text), style)
 
 
 def _page_ref(page: Any) -> str:
@@ -98,7 +109,7 @@ def _glance(highlights: list[dict[str, str]], st: dict[str, ParagraphStyle]) -> 
         color = _UP if change.startswith("+") else _DOWN if change.startswith("-") else "#5f6b7a"
         label = "vs last year" if change != "—" else ""
         tiles.append([_p(h["label"], st["kpi_l"]), _p(h["value"], st["kpi_v"]),
-                      Paragraph(f"<font color='{color}'><b>{escape(change)}</b></font> "
+                      Paragraph(f"<font color='{color}'><b>{_esc(change)}</b></font> "
                                 f"<font color='#5f6b7a'>{label}</font>", st["kpi_c"])])
     while len(tiles) % 3:
         tiles.append("")
@@ -143,8 +154,8 @@ def _table(spec: dict[str, Any], st: dict[str, ParagraphStyle]) -> list:
 
 def _flag(f: dict[str, Any], st: dict[str, ParagraphStyle]) -> KeepTogether:
     color = _SEVERITY.get(f["severity"], "#475467")
-    body = [Paragraph(f"<font color='{color}'><b>{escape(f['severity']).upper()}</b></font> &nbsp;"
-                      f"<b>{escape(f['title'])}</b>{_page_ref(f.get('page'))}", st["body"]),
+    body = [Paragraph(f"<font color='{color}'><b>{_esc(f['severity']).upper()}</b></font> &nbsp;"
+                      f"<b>{_esc(f['title'])}</b>{_page_ref(f.get('page'))}", st["body"]),
             _p(f["description"], st["body"])]
     if f.get("evidence"):
         body.append(_p(f"Evidence: {f['evidence']}", st["src"]))
@@ -164,7 +175,7 @@ def _section(sec: dict[str, Any], st: dict[str, ParagraphStyle]) -> list:
         flow.append(_p(sec.get("note") or "This section is not available.", st["note"]))
         return flow
     for s in sec.get("sentences", []):
-        flow.append(Paragraph(f"{escape(s['text'])}{_page_ref(s.get('page'))}", st["body"]))
+        flow.append(Paragraph(f"{_esc(s['text'])}{_page_ref(s.get('page'))}", st["body"]))
         if s.get("quote"):
             flow.append(_p(f"“{s['quote']}”", st["src"]))
     for t in sec.get("tables", []):
