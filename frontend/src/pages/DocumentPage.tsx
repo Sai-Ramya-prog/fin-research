@@ -25,12 +25,17 @@ export function DocumentPage() {
   const [imgState, setImgState] = useState<'loading' | 'ok' | 'error'>('loading')
   useEffect(() => { setImgState('loading') }, [id, page, highlight])
 
+  // pages a chat answer used (…?cited=276,277): lit on the page map below
+  const cited = (params.get('cited') ?? '').split(',').map(Number).filter(n => Number.isInteger(n) && n > 0)
+  const citedSet = new Set(cited)
+
   const pages = map.data?.pages ?? []
   const current: PageInfo | undefined = pages.find(p => p.pdf_page === page)
   const open = (n: number, q?: string) => {
     const next = new URLSearchParams()
     next.set('page', String(n))
     if (q) next.set('q', q)
+    if (cited.length) next.set('cited', cited.join(','))   // keep the trail while browsing
     setParams(next, { replace: true })
   }
 
@@ -56,11 +61,22 @@ export function DocumentPage() {
             : 'Loading…'}
         </p>
         {map.error && <div className="empty" style={{ color: 'var(--oxblood)' }}>{map.error}</div>}
+        {cited.length > 0 && (
+          <div className="trail-note">
+            <span>
+              <b>Evidence trail:</b> the glowing pages are what the answer used
+              ({cited.map(n => `p.${n}`).join(', ')}).
+            </span>
+            <button className="btn sm outline" onClick={() => setParams(page ? { page: String(page) } : {}, { replace: true })}>
+              Clear
+            </button>
+          </div>
+        )}
         <div className="pagemap" role="list">
           {pages.map(p => (
             <button
               key={p.pdf_page} role="listitem"
-              className={`pm sec-${p.section ?? 'other'} ${p.tier === 1 ? 'tier1' : 'tier2'} ${page === p.pdf_page ? 'sel' : ''}`}
+              className={`pm sec-${p.section ?? 'other'} ${p.tier === 1 ? 'tier1' : 'tier2'} ${page === p.pdf_page ? 'sel' : ''} ${citedSet.has(p.pdf_page) ? 'cited' : ''}`}
               title={`Page ${p.pdf_page}: ${sectionName(p.section)} · tier ${p.tier}${p.indexed ? ' · embedded' : ''}`}
               onClick={() => open(p.pdf_page)}
               aria-label={`Page ${p.pdf_page}, ${sectionName(p.section)}`}

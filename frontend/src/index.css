@@ -345,6 +345,9 @@ button.pm { cursor: pointer; }
 .pm.tier1 { background: var(--c, var(--bar)); }
 .pm.sel { outline: 2px solid var(--ink); outline-offset: 1px; }
 button.pm:hover { transform: scale(1.5); }
+.pm.cited { background: var(--c, var(--bar)); position: relative; z-index: 1; transform: scale(1.7); box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--ink), 0 0 12px 3px var(--c, var(--bar)); }
+button.pm.cited:hover { transform: scale(2.1); }
+.trail-note { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 8px 12px; background: var(--sunk); border-radius: 10px; font-size: 0.84rem; color: var(--ink-2); }
 .sec-other { --c: var(--bar); }
 .sec-profit_loss { --c: #1f8f5f; }
 .sec-balance_sheet { --c: #2f6fb3; }
@@ -418,3 +421,18 @@ table.cmp tr.warn td { color: var(--brass-ink); }
 .pv-box { background: var(--card); border: 1px solid var(--line); border-radius: 16px; width: min(1000px, 100%); height: min(92vh, 1100px); display: flex; flex-direction: column; overflow: hidden; }
 .pv-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .pv-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+
+/* ── evidence trail (under a chat answer) ────────────────────────────── */
+.trail { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.trail-cap { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; margin-bottom: 8px; font-size: 0.76rem; color: var(--muted); }
+.trail-cap b { color: var(--ink-2); letter-spacing: 0.02em; }
+.trail-map { display: flex; flex-wrap: wrap; gap: 2px; padding: 5px 3px; }
+.tp { width: 6px; height: 6px; border-radius: 2px; background: var(--c, var(--bar)); opacity: 0.28; display: inline-block; }
+.tp.hit { opacity: 1; position: relative; z-index: 1; transform: scale(2.2); cursor: pointer; box-shadow: 0 0 0 1px var(--sunk), 0 0 0 2px var(--ink), 0 0 8px 2px var(--c, var(--bar)); }
+.tp.hit.unv { box-shadow: 0 0 0 1px var(--sunk), 0 0 0 2px var(--brass), 0 0 8px 2px var(--brass); }
+.tp.hit:hover { transform: scale(3); z-index: 2; }
+@media (prefers-reduced-motion: no-preference) {
+  .tp.hit { animation: tp-glow 1.4s ease-out 2; }
+  .tp.hit, .pm.cited { transition: transform 0.12s ease; }
+  @keyframes tp-glow { 0% { transform: scale(1); } 45% { transform: scale(3.2); } 100% { transform: scale(2.2); } }
+}

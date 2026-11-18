@@ -1,14 +1,22 @@
 /** Strict chat for the selected company: answers cite pages, and each citation opens the page. */
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { sourceLink } from '../api/analysis'
+import { getPageMap, sourceLink, type PageInfo } from '../api/analysis'
 import { askChat, clearChat, getChat, type ChatMessage } from '../api/ask'
+import { EvidenceTrail } from './EvidenceTrail'
+import { useLoad } from './useLoad'
 
 const STARTERS = [
   'What is the revenue?',
   'What are the main risks management mentions?',
   'Where does the company operate?',
 ]
+
+const NO_PAGES: PageInfo[] = []   // stable empty value so memoised children do not re-render
+
+/** Every page an answer cites, once each, in page order. */
+const citedPages = (m: ChatMessage): number[] =>
+  [...new Set(m.citations.map(c => c.pdf_page).filter((n): n is number => n != null))].sort((a, b) => a - b)
 
 interface Props { sessionId: string; company: string; year: number; docId: string }
 
@@ -18,6 +26,9 @@ export function ChatPanel({ sessionId, company, year, docId }: Props) {
   const [busy, setBusy] = useState<string | null>(null)   // the question being answered
   const [error, setError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  // the report's page map, loaded once, so every answer can show where it came from
+  const pageMap = useLoad(() => getPageMap(docId), [docId])
+  const pages = pageMap.data?.pages ?? NO_PAGES
 
   useEffect(() => {
     let alive = true
@@ -81,13 +92,14 @@ export function ChatPanel({ sessionId, company, year, docId }: Props) {
               <div className="chips">
                 {m.citations.map((c, i) => c.pdf_page != null && (
                   <Link key={i} className={`src linkish cite ${c.verified ? '' : 'unv'}`}
-                    to={sourceLink(docId, c.pdf_page, c.quote ? c.quote.slice(0, 90) : null)}
+                    to={sourceLink(docId, c.pdf_page, c.quote ? c.quote.slice(0, 90) : null, citedPages(m))}
                     title={c.quote ? `“${c.quote}”` : 'Open the source page'}>
                     p.{c.pdf_page}{c.verified ? ' ✓' : ''}
                   </Link>
                 ))}
               </div>
             )}
+            {pages.length > 0 && <EvidenceTrail docId={docId} pages={pages} citations={m.citations} />}
           </div>
         ))}
         {busy && (<>

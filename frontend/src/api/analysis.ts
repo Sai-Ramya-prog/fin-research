@@ -132,9 +132,13 @@ export function pageImageUrl(id: string, page: number, highlight?: string | null
 }
 
 /** Link target that opens the document screen on a given page. */
-export function sourceLink(docId: string, page: number, text?: string | null): string {
+export function sourceLink(
+  docId: string, page: number, text?: string | null, cited?: number[],
+): string {
   const q = text ? `&q=${encodeURIComponent(text)}` : ''
-  return `/documents/${docId}?page=${page}${q}`
+  // `cited` = every page an answer used; the document screen lights them on its page map
+  const c = cited && cited.length ? `&cited=${cited.slice(0, 20).join(',')}` : ''
+  return `/documents/${docId}?page=${page}${q}${c}`
 }
 
 export const SECTION_LABEL: Record<string, string> = {

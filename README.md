@@ -67,6 +67,9 @@ Open **Ask and report**, pick a session, a company that is in it (a dropdown, no
 * **Chat** - opens once the report is generated. Strict: answers only from the selected company's uploaded report, with page citations that open
   the page viewer. Plain "what is X" questions are answered from the metrics table by code; questions about
   another company are refused; anything not in the document says so.
+* **Evidence trail** - under every answer, a small map of the whole report with the pages the answer used
+  lit up (dashed ring = a citation that could not be confirmed). Click a lit page to open it; the document's
+  full page map then lights the same pages (`?cited=62,151`), with a Clear button.
 
 Company names are stored **upper case** everywhere. After pulling this change, once:
 
