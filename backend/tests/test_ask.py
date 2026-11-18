@@ -128,8 +128,8 @@ class TestGrounding:
         assert not quote_on_page(None, MDNA)
 
     def test_fill_placeholders(self):
-        vals = {"revenue": "1,000 INR crore"}
-        assert fill_placeholders("Revenue was {revenue}.", vals) == "Revenue was 1,000 INR crore."
+        vals = {"revenue": "₹1,000 crore"}
+        assert fill_placeholders("Revenue was {revenue}.", vals) == "Revenue was ₹1,000 crore."
         assert fill_placeholders("Margin was {operating_margin_pct}.", vals) is None
 
     def test_numbers_supported(self):
@@ -138,10 +138,20 @@ class TestGrounding:
         assert numbers_supported("In 2025 revenue was {revenue}", "no digits", allowed=(2025,))
 
     @pytest.mark.parametrize("value,unit,expected", [
-        (153670.0, "INR crore", "153,670 INR crore"), (12.3, "%", "12.3%"), (1.5, "x", "1.5x"),
-        (7.0, None, "7")])
+        (153670.0, "INR crore", "₹153,670 crore"), (12.3, "%", "12.3%"), (1.5, "x", "1.5x"),
+        (7.0, None, "7"),
+        (162990.0, "₹ in crore", "₹162,990 crore"), (162990.0, "Rs in crores", "₹162,990 crore"),
+        (45.5, "₹ per share", "₹45.5 per share"), (-1200.0, "INR crore", "-₹1,200 crore"),
+        (500.0, "₹", "₹500"), (80.0, "USD million", "80 USD million")])
     def test_fmt_value(self, value, unit, expected):
         assert fmt_value(value, unit) == expected
+
+    @pytest.mark.parametrize("name,expected", [
+        ("infosys_fy2025.pdf.pdf", "infosys_fy2025.pdf"), ("a.PDF.pdf", "a.pdf"),
+        ("report.pdf", "report.pdf"), ("my.pdf.notes.pdf", "my.pdf.notes.pdf"), (None, "upload.pdf")])
+    def test_clean_filename(self, name, expected):
+        from app.company import clean_filename
+        assert clean_filename(name) == expected
 
     def test_norm_flattens(self):
         assert norm("A–B  C") == "a-b c"
@@ -206,7 +216,7 @@ def _m(name, cur, pri=None, unit="INR crore", page=5, status="verified", kind="e
 
 class TestSections:
     PAGES = {2: MDNA}
-    VALUES = {"revenue": "1,53,670 INR crore"}
+    VALUES = {"revenue": "₹1,53,670 crore"}
 
     def _draft(self, *sentences):
         return sec.SectionDraft(sentences=[sec.DraftSentence(text=t, page=p, quote=q) for t, p, q in sentences])
@@ -216,7 +226,7 @@ class TestSections:
                         ("It operates in North America, Europe and India.", 2, "North America, Europe and India"))
         kept, dropped = sec.check_sentences(d, self.PAGES, self.VALUES, 2025)
         assert dropped == 0
-        assert kept[0]["text"] == "Revenue was 1,53,670 INR crore."
+        assert kept[0]["text"] == "Revenue was ₹1,53,670 crore."
         assert kept[1]["quote"] == "North America, Europe and India"
 
     @pytest.mark.parametrize("sentence", [
@@ -236,7 +246,7 @@ class TestSections:
     def test_placeholder_values_use_verified_only(self):
         rows = _m("revenue", 100.0, 90.0) + _m("total_assets", 5.0, status="needs_review")
         vals = sec.placeholder_values(rows)
-        assert vals["revenue"] == "100 INR crore" and vals["revenue__prior"] == "90 INR crore"
+        assert vals["revenue"] == "₹100 crore" and vals["revenue__prior"] == "₹90 crore"
         assert "total_assets" not in vals
 
     def test_metrics_section_tables_change_and_review_flag(self):
@@ -364,7 +374,7 @@ class TestReportAgent:
         assert rep["status"] == "ready" and rep["company"] == "INFOSYS"
         assert [s["key"] for s in rep["sections"]] == ["snapshot", "outlook"]
         assert rep["progress"] == {"done": 2, "total": 2}
-        assert rep["sections"][0]["sentences"][0]["text"] == "Revenue was 153,670 INR crore."
+        assert rep["sections"][0]["sentences"][0]["text"] == "Revenue was ₹153,670 crore."
 
     def test_metrics_peers_and_red_flags_are_not_in_the_report(self, world, no_vectors):
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
@@ -497,11 +507,11 @@ class TestReportAgent:
         import fitz
         rep = {"company": "M&M", "fiscal_year": 2025, "status": "ready", "sections": [
             {"key": "metrics", "title": "Key metrics", "status": "ready", "sentences": [{"text": "Revenue was ₹ 5 in crore.", "page": 3, "quote": "“₹ 5”"}],
-             "flags": [], "note": None, "highlights": [{"label": "Revenue", "value": "158,749.75 ₹ in crore", "change": "+14.8%"}],
+             "flags": [], "note": None, "highlights": [{"label": "Revenue", "value": "₹158,749.75 crore", "change": "+14.8%"}],
              "tables": [{"title": "Reported figures", "columns": ["Metric", "This year", "Last year", "Change"],
-                         "rows": [{"cells": ["Revenue", "158,749.75 ₹ in crore", "138,279.3 ₹ in crore", "+14.8%"], "page": 45, "warn": False}]}]}]}
+                         "rows": [{"cells": ["Revenue", "₹158,749.75 crore", "₹138,279.3 crore", "+14.8%"], "page": 45, "warn": False}]}]}]}
         text = "".join(page.get_text() for page in fitz.open(stream=build_pdf(rep), filetype="pdf"))
-        assert "Rs. in crore" in text and "\u20b9" not in text and "\u25a0" not in text
+        assert "Rs. 158,749.75 crore" in text and "\u20b9" not in text and "\u25a0" not in text
 
     def test_pdf_has_all_five_sections_but_the_screen_has_two(self, world, no_vectors):
         rid, _ = rg.start_report(world.session_id, "INFOSYS", 2025)
@@ -512,7 +522,7 @@ class TestReportAgent:
         assert screen == ["snapshot", "outlook"]
         assert [s["key"] for s in full["sections"]] == ["snapshot", "metrics", "peers", "red_flags", "outlook"]
         glance = {h["label"]: h for h in full["sections"][1]["highlights"]}
-        assert glance["Revenue"]["value"] == "153,670 INR crore" and glance["Revenue"]["change"] == "+4.7%"
+        assert glance["Revenue"]["value"] == "₹153,670 crore" and glance["Revenue"]["change"] == "+4.7%"
 
     def test_pdf_leaves_out_peers_when_there_is_nobody_to_compare(self, env, world, no_vectors):
         with env.scope() as s:
@@ -560,7 +570,7 @@ class TestChatAgent:
     def test_plain_number_answers_from_metrics_without_the_model(self, world):
         with patch.object(llm, "call_structured", side_effect=AssertionError("no LLM call expected")):
             msg = chat.ask(world.session_id, "infosys", 2025, "What is the revenue?")
-        assert msg["kind"] == "numeric" and "153,670 INR crore" in msg["content"]
+        assert msg["kind"] == "numeric" and "₹153,670 crore" in msg["content"]
         assert msg["citations"] == [{"pdf_page": 5, "quote": "Revenue from operations 1,53,670 1,46,767", "verified": True}]
 
     def test_prior_year_and_calculated_ratio(self, world):

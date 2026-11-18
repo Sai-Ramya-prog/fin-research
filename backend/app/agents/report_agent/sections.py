@@ -237,7 +237,7 @@ SYSTEM_PROMPT = """You write one section of an equity research report using ONLY
 Rules:
 - Every sentence must be supported by one of the provided pages; cite its PDF page number.
 - Do NOT type financial figures yourself. Use {metric_id} placeholders from AVAILABLE FIGURES;
-  code replaces them with verified numbers that ALREADY include the unit (e.g. "12,345 INR crore" or
+  code replaces them with verified numbers that ALREADY include the unit (e.g. "\u20b912,345 crore" or
   "21.1%"), so never write a unit, currency or "crore" after a placeholder. Words like "grew" or "fell" are fine, but check the
   figures' direction before using them.
 - Copy a short verbatim quote from the cited page for each sentence when you can.
@@ -256,7 +256,7 @@ _BRIEFS = {
 
 
 def placeholder_values(metrics: list[dict]) -> dict[str, str]:
-    """Verified metrics as ``{metric_id: '12,345 INR crore'}`` (``__prior`` for last year)."""
+    """Verified metrics as ``{metric_id: '\u20b912,345 crore'}`` (``__prior`` for last year)."""
     out: dict[str, str] = {}
     for m in metrics:
         if m["value"] is None or m["status"] != "verified":

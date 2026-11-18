@@ -23,3 +23,11 @@ def normalize_company(name: Optional[str]) -> Optional[str]:
         return None
     cleaned = re.sub(r"\s+", " ", name).strip().upper()
     return cleaned or None
+
+
+def clean_filename(name: Optional[str]) -> str:
+    """Collapse a doubled extension: "infosys_fy2025.pdf.pdf" -> "infosys_fy2025.pdf".
+
+    Windows hides known extensions, so a file renamed to "x.pdf" while it was really
+    "x.pdf" ends up as "x.pdf.pdf". Only the shown name is tidied; the stored file is untouched."""
+    return re.sub(r"(\.pdf)+$", ".pdf", (name or "").strip(), flags=re.IGNORECASE) or "upload.pdf"

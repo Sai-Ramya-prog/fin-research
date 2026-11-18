@@ -131,6 +131,9 @@ export function pageImageUrl(id: string, page: number, highlight?: string | null
   return `${BASE}/documents/${id}/pages/${page}/image${q}`
 }
 
+/** "x.pdf.pdf" (Windows hides the extension) is shown as "x.pdf". Display only. */
+export const displayFilename = (name: string): string => name.replace(/(\.pdf)+$/i, '.pdf')
+
 /** Link target that opens the document screen on a given page. */
 export function sourceLink(
   docId: string, page: number, text?: string | null, cited?: number[],

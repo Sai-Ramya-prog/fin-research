@@ -7,7 +7,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { PageHead } from '../components/PageHead'
 import { useLoad } from '../components/useLoad'
 import {
-  getDocDetail, getPageMap, getValidation, label, pageImageUrl, pretty, fmtAmount, SECTION_LABEL,
+  displayFilename, getDocDetail, getPageMap, getValidation, label, pageImageUrl, pretty, fmtAmount, SECTION_LABEL,
   type PageInfo,
 } from '../api/analysis'
 
@@ -49,7 +49,7 @@ export function DocumentPage() {
       <PageHead
         title={d ? label(d) : 'Document'} accent={d?.fiscal_year ? `FY${d.fiscal_year}` : undefined}
         eyebrow="Document" sample={false}
-        blurb={d?.filename ?? 'Loading…'}
+        blurb={d ? displayFilename(d.filename) : 'Loading…'}
       />
 
       {/* ── page map ─────────────────────────────────────────────── */}

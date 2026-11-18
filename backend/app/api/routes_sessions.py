@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app import storage
 from app.agents.orchestrator import run_pipeline
-from app.company import normalize_company
+from app.company import clean_filename, normalize_company
 from app.db.engine import get_session
 from app.db.models import Document, Session
 
@@ -274,7 +274,7 @@ async def upload_document(
     doc = Document(
         id=doc_id,
         session_id=session_id,
-        filename=original_filename,
+        filename=clean_filename(original_filename),
         storage_key=storage_key,
         company=normalize_company(company),
         fiscal_year=fy_int,

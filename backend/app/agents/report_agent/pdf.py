@@ -13,6 +13,7 @@ Layout, top to bottom:
 from __future__ import annotations
 
 import io
+import re
 from datetime import datetime
 from typing import Any
 from xml.sax.saxutils import escape
@@ -69,7 +70,7 @@ def _styles() -> dict[str, ParagraphStyle]:
 def _clean(text: Any) -> str:
     """The PDF uses the built-in Helvetica (no font files to install), which cannot draw the
     rupee sign and would print a black square. Write it as "Rs."; drop anything else it cannot draw."""
-    t = str(text).replace("\u20b9", "Rs.")
+    t = re.sub(r"\u20b9\s*", "Rs. ", str(text))
     return t.encode("cp1252", "ignore").decode("cp1252")
 
 

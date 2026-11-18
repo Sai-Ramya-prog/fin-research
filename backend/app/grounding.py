@@ -44,8 +44,12 @@ def quote_on_page(quote: Optional[str], page_text: str) -> bool:
     return q in norm(page_text)
 
 
+_CURRENCY_RE = re.compile(r"\u20b9|\brs\b\.?|\binr\b|\brupees?\b", re.IGNORECASE)
+_SCALE_PLURAL_RE = re.compile(r"\b(crore|lakh|million|billion|thousand)s\b", re.IGNORECASE)
+
+
 def fmt_value(value: float, unit: Optional[str]) -> str:
-    """12345.6 + 'INR crore' -> '12,345.6 INR crore'; 12.3 + '%' -> '12.3%'."""
+    """12345.6 + 'INR crore' (or '\u20b9 in crore') -> '\u20b912,345.6 crore'; 12.3 + '%' -> '12.3%'."""
     number = f"{value:,.2f}".rstrip("0").rstrip(".")
     if not unit:
         return number
@@ -53,6 +57,13 @@ def fmt_value(value: float, unit: Optional[str]) -> str:
         return f"{number}%"
     if unit == "x":
         return f"{number}x"
+    if _CURRENCY_RE.search(unit):
+        # rupee amounts read "\u20b9162,990 crore", not "162,990 \u20b9 in crore"
+        rest = _CURRENCY_RE.sub(" ", unit)
+        rest = re.sub(r"^\W*in\b", "", rest.strip(), flags=re.IGNORECASE)
+        rest = _SCALE_PLURAL_RE.sub(lambda m: m.group(1).lower(), rest).strip(" ,.()-")
+        sign, digits = ("-", number[1:]) if number.startswith("-") else ("", number)
+        return f"{sign}\u20b9{digits} {rest}" if rest else f"{sign}\u20b9{digits}"
     return f"{number} {unit}"
 
 
